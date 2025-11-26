@@ -27,6 +27,7 @@ export default function Dashboard() {
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [deviceFilter, setDeviceFilter] = useState('all'); // 'all', 'bluetooth', 'wifi'
+  const [scanMode, setScanMode] = useState('both'); // 'wifi', 'bluetooth', 'both'
   const audioRef = useRef(null);
 
   useEffect(() => {
@@ -137,10 +138,15 @@ export default function Dashboard() {
     try {
       const response = await fetch('/api/scan/start', {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ mode: scanMode }),
       });
       if (response.ok) {
         setScanning(true);
-        addLog('success', 'Bluetooth scanning started');
+        const modeLabel = scanMode === 'both' ? 'WiFi & Bluetooth' : scanMode === 'wifi' ? 'WiFi' : 'Bluetooth';
+        addLog('success', `${modeLabel} scanning started`);
       }
     } catch (error) {
       addLog('error', 'Failed to start scanning');
@@ -242,6 +248,22 @@ export default function Dashboard() {
             >
               Targets
             </button>
+
+            {/* Scan Mode Selector */}
+            <div className="flex items-center gap-2 border border-green-700 rounded px-2 py-1">
+              <span className="text-xs text-green-400">Scan:</span>
+              <select
+                value={scanMode}
+                onChange={(e) => setScanMode(e.target.value)}
+                disabled={scanning}
+                className="bg-stone-800 text-white text-sm border border-green-700 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-green-600 disabled:opacity-50"
+              >
+                <option value="both">WiFi + BT</option>
+                <option value="wifi">WiFi Only</option>
+                <option value="bluetooth">BT Only</option>
+              </select>
+            </div>
+
             {scanning ? (
               <button
                 onClick={handleStopScan}

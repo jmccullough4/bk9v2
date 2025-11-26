@@ -4,10 +4,11 @@ const util = require('util');
 const execPromise = util.promisify(exec);
 
 class BluetoothScanner extends EventEmitter {
-  constructor(db, io) {
+  constructor(db, io, gpsService) {
     super();
     this.db = db;
     this.io = io;
+    this.gpsService = gpsService;
     this.scanning = false;
     this.radios = [];
     this.scanProcesses = new Map();
@@ -402,8 +403,12 @@ class BluetoothScanner extends EventEmitter {
   }
 
   async getCurrentGPSLocation() {
-    // This will be populated by GPS service
-    // For now return a default location
+    // Get location from GPS service
+    if (this.gpsService) {
+      return this.gpsService.getCurrentLocation();
+    }
+
+    // Fallback to default location if GPS service not available
     return {
       lat: 37.7749,
       lon: -122.4194,

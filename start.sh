@@ -82,6 +82,11 @@ start_app() {
         echo ""
     fi
 
+    # Configure Kismet connection to local client
+    export KISMET_URL="http://10.109.100.1:2501"
+    echo -e "${GREEN}✓ Kismet configured: ${KISMET_URL}${NC}"
+    echo ""
+
     # Check if production or development
     if [ "$NODE_ENV" = "production" ]; then
         echo -e "${BLUE}Starting in production mode...${NC}"
