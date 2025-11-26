@@ -129,7 +129,7 @@ app.prepare().then(() => {
 
   expressApp.get('/api/sms/numbers', (req, res) => {
     const numbers = db.getSMSNumbers();
-    res.json(numbers);
+    res.json({ numbers });
   });
 
   expressApp.post('/api/settings/gps/update', async (req, res) => {
