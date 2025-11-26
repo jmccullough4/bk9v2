@@ -92,6 +92,16 @@ class BlueK9Database {
       )
     `);
 
+    // Radios table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS radios (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT,
+        device TEXT,
+        addedAt INTEGER
+      )
+    `);
+
     // Initialize default settings
     const defaultSettings = {
       gpsSource: 'simulated',
@@ -310,6 +320,29 @@ class BlueK9Database {
   deleteUser(username) {
     this.db.prepare('DELETE FROM users WHERE username = ?').run(username);
     this.addLog('info', `User deleted: ${username}`);
+  }
+
+  // Radio operations
+  getRadios() {
+    return this.db.prepare('SELECT * FROM radios ORDER BY addedAt DESC').all();
+  }
+
+  addRadio(type, device) {
+    const now = Date.now();
+    const result = this.db.prepare(`
+      INSERT INTO radios (type, device, addedAt)
+      VALUES (?, ?, ?)
+    `).run(type, device, now);
+    this.addLog('info', `Radio added: ${type} ${device}`);
+    return this.db.prepare('SELECT * FROM radios WHERE id = ?').get(result.lastInsertRowid);
+  }
+
+  removeRadio(id) {
+    const radio = this.db.prepare('SELECT * FROM radios WHERE id = ?').get(id);
+    if (radio) {
+      this.db.prepare('DELETE FROM radios WHERE id = ?').run(id);
+      this.addLog('info', `Radio removed: ${radio.type} ${radio.device}`);
+    }
   }
 }
 
