@@ -75,35 +75,60 @@ class GPSService extends EventEmitter {
         return;
       }
 
-      // Connect to GPSD on localhost:2947
-      const gpsd = require('node-gpsd');
-      this.gpsdClient = new gpsd.Listener({
-        port: 2947,
-        hostname: 'localhost'
-      });
+      // Connect to GPSD on localhost:2947 using simple TCP
+      console.log('[GPS] Connecting to GPSD on localhost:2947');
+      this.gpsdClient = new net.Socket();
+      let buffer = '';
 
-      this.gpsdClient.on('TPV', (data) => {
-        if (data.lat && data.lon) {
-          this.currentLocation = {
-            lat: data.lat,
-            lon: data.lon,
-            accuracy: data.epy || 10,
-            altitude: data.alt || 0,
-            speed: data.speed || 0,
-            heading: data.track || 0,
-            timestamp: Date.now()
-          };
-          this.emit('locationUpdate', this.currentLocation);
-        }
-      });
-
-      this.gpsdClient.connect(() => {
+      this.gpsdClient.connect(2947, 'localhost', () => {
         console.log('[GPS] Connected to GPSD');
-        this.gpsdClient.watch();
+        // Enable watch mode and request JSON output
+        this.gpsdClient.write('?WATCH={"enable":true,"json":true}\n');
+      });
+
+      this.gpsdClient.on('data', (data) => {
+        buffer += data.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          try {
+            const json = JSON.parse(line);
+
+            // Handle TPV (Time-Position-Velocity) messages
+            if (json.class === 'TPV' && json.lat && json.lon && json.mode >= 2) {
+              this.currentLocation = {
+                lat: json.lat,
+                lon: json.lon,
+                accuracy: json.epy || json.epx || 10,
+                altitude: json.alt || 0,
+                speed: json.speed || 0,
+                heading: json.track || 0,
+                timestamp: Date.now()
+              };
+              console.log('[GPS] GPSD position update:', json.lat.toFixed(6), json.lon.toFixed(6), 'mode:', json.mode);
+              this.emit('locationUpdate', this.currentLocation);
+            }
+          } catch (e) {
+            // Ignore non-JSON lines
+          }
+        }
       });
 
       this.gpsdClient.on('error', (error) => {
         console.log('[GPS] GPSD error:', error.message);
+        console.log('[GPS] Falling back to simulated GPS');
+        this.startSimulatedGPS();
+      });
+
+      this.gpsdClient.on('close', () => {
+        console.log('[GPS] GPSD connection closed');
+        // Try to reconnect after 5 seconds if still in gpsd mode
+        setTimeout(() => {
+          if (this.gpsSource === 'gpsd') {
+            this.startGPSD();
+          }
+        }, 5000);
       });
 
     } catch (error) {
@@ -260,16 +285,20 @@ class GPSService extends EventEmitter {
       this.updateInterval = null;
     }
 
-    // Close TCP client
+    // Close NMEA TCP client
     if (this.tcpClient) {
-      this.tcpClient.destroy();
+      try {
+        this.tcpClient.destroy();
+      } catch (error) {
+        // Ignore
+      }
       this.tcpClient = null;
     }
 
-    // Close GPSD client
+    // Close GPSD client (also a TCP socket)
     if (this.gpsdClient) {
       try {
-        this.gpsdClient.disconnect();
+        this.gpsdClient.destroy();
       } catch (error) {
         // Ignore
       }

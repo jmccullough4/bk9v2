@@ -232,6 +232,12 @@ class BlueK9Database {
 
   setSMSNumbers(numbers) {
     this.db.prepare('DELETE FROM sms_numbers').run();
+
+    // Handle undefined or non-array input
+    if (!numbers || !Array.isArray(numbers)) {
+      return;
+    }
+
     const stmt = this.db.prepare('INSERT INTO sms_numbers (number) VALUES (?)');
     numbers.forEach(number => {
       try {
