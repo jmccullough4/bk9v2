@@ -1,34 +1,23 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
-import dynamic from 'next/dynamic';
 import io from 'socket.io-client';
 import MapComponent from '../components/MapComponent';
 import SurveyTable from '../components/SurveyTable';
-import TargetManager from '../components/TargetManager';
 import RadioManager from '../components/RadioManager';
-import SettingsManager from '../components/SettingsManager';
 import LogPanel from '../components/LogPanel';
-import AnalyticsPanel from '../components/AnalyticsPanel';
-import SMSConfig from '../components/SMSConfig';
 
 let socket;
 
 export default function Dashboard() {
   const router = useRouter();
   const [devices, setDevices] = useState([]);
-  const [targets, setTargets] = useState([]);
   const [radios, setRadios] = useState([]);
   const [logs, setLogs] = useState([]);
   const [gpsLocation, setGpsLocation] = useState(null);
   const [scanning, setScanning] = useState(false);
-  const [showTargetManager, setShowTargetManager] = useState(false);
   const [showRadioManager, setShowRadioManager] = useState(false);
-  const [showSMSConfig, setShowSMSConfig] = useState(false);
-  const [showAnalytics, setShowAnalytics] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [deviceFilter, setDeviceFilter] = useState('all'); // 'all', 'bluetooth', 'wifi'
-  const [scanMode, setScanMode] = useState('both'); // 'wifi', 'bluetooth', 'both'
-  const audioRef = useRef(null);
+  const [contextMenu, setContextMenu] = useState(null);
+  const [selectedDevice, setSelectedDevice] = useState(null);
 
   useEffect(() => {
     // Check authentication
@@ -41,10 +30,15 @@ export default function Dashboard() {
     // Initialize socket connection
     socketInitializer();
 
+    // Close context menu on click
+    const handleClick = () => setContextMenu(null);
+    document.addEventListener('click', handleClick);
+
     return () => {
       if (socket) {
         socket.disconnect();
       }
+      document.removeEventListener('click', handleClick);
     };
   }, []);
 
@@ -70,83 +64,50 @@ export default function Dashboard() {
       });
     });
 
-    socket.on('targets', (data) => {
-      setTargets(data);
-    });
-
-    socket.on('targetAdded', (target) => {
-      setTargets((prev) => [...prev, target]);
-      addLog('success', `Target added: ${target.address}`);
-    });
-
-    socket.on('targetRemoved', (address) => {
-      setTargets((prev) => prev.filter((t) => t.address !== address));
-      addLog('info', `Target removed: ${address}`);
-    });
-
-    socket.on('targetDetected', (device) => {
-      addLog('alert', `🎯 TARGET DETECTED: ${device.address} (${device.name})`);
-      playAlert();
-      showTargetAlert(device);
+    socket.on('devicesClear', () => {
+      setDevices([]);
     });
 
     socket.on('gpsUpdate', (location) => {
       setGpsLocation(location);
     });
 
-    socket.on('radiosUpdate', (data) => {
-      setRadios(data);
-    });
-
     socket.on('log', (log) => {
       addLog(log.level, log.message);
     });
 
-    socket.on('devicesClear', () => {
-      setDevices([]);
-      addLog('info', 'Devices cleared');
-    });
+    // Fetch initial data
+    const [devicesRes, radiosRes] = await Promise.all([
+      fetch('/api/devices'),
+      fetch('/api/radios')
+    ]);
+
+    if (devicesRes.ok) {
+      const data = await devicesRes.json();
+      setDevices(data);
+    }
+
+    if (radiosRes.ok) {
+      const data = await radiosRes.json();
+      setRadios(data.radios || []);
+    }
   };
 
   const addLog = (level, message) => {
-    const log = {
-      id: Date.now() + Math.random(),
-      timestamp: Date.now(),
-      level,
-      message,
-    };
-    setLogs((prev) => [log, ...prev].slice(0, 500)); // Keep last 500 logs
-  };
-
-  const playAlert = () => {
-    if (audioRef.current) {
-      audioRef.current.play().catch((e) => console.log('Audio play failed:', e));
-    }
-  };
-
-  const showTargetAlert = (device) => {
-    // Create a visual alert
-    if (Notification.permission === 'granted') {
-      new Notification('BlueK9 Target Detected!', {
-        body: `${device.name} (${device.address})`,
-        icon: '/favicon.ico',
-      });
-    }
+    setLogs((prev) => [
+      { level, message, timestamp: Date.now() },
+      ...prev.slice(0, 99)
+    ]);
   };
 
   const handleStartScan = async () => {
     try {
       const response = await fetch('/api/scan/start', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ mode: scanMode }),
       });
       if (response.ok) {
         setScanning(true);
-        const modeLabel = scanMode === 'both' ? 'WiFi & Bluetooth' : scanMode === 'wifi' ? 'WiFi' : 'Bluetooth';
-        addLog('success', `${modeLabel} scanning started`);
+        addLog('success', 'Bluetooth scanning started');
       }
     } catch (error) {
       addLog('error', 'Failed to start scanning');
@@ -173,31 +134,17 @@ export default function Dashboard() {
     }
 
     try {
-      const response = await fetch('/api/devices/clear', {
-        method: 'POST',
-      });
-      if (response.ok) {
-        setDevices([]);
-        addLog('info', 'All devices cleared');
-      }
+      await fetch('/api/devices/clear', { method: 'POST' });
+      setDevices([]);
+      addLog('info', 'Devices cleared');
     } catch (error) {
       addLog('error', 'Failed to clear devices');
     }
   };
 
   const handleExport = async () => {
-    try {
-      const response = await fetch('/api/export/csv');
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `bluek9-export-${Date.now()}.csv`;
-      a.click();
-      addLog('success', 'Data exported successfully');
-    } catch (error) {
-      addLog('error', 'Failed to export data');
-    }
+    window.location.href = '/api/export/csv';
+    addLog('info', 'Exporting devices to CSV');
   };
 
   const handleLogout = () => {
@@ -205,232 +152,228 @@ export default function Dashboard() {
     router.push('/');
   };
 
-  const requestNotificationPermission = () => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
+  // Right-click context menu
+  const handleDeviceRightClick = (e, device) => {
+    e.preventDefault();
+    setSelectedDevice(device);
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      device
+    });
   };
 
-  useEffect(() => {
-    requestNotificationPermission();
-  }, []);
+  const handleGeo = async () => {
+    if (!selectedDevice) return;
+    addLog('info', `Running geolocation for ${selectedDevice.address}...`);
+
+    try {
+      const res = await fetch('/api/device/geo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: selectedDevice.address })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        addLog('success', `Geo: ${selectedDevice.address} - RSSI: ${data.rssi} dBm, Distance: ${data.distance}m`);
+        // TODO: Update map with heatmap
+      } else {
+        addLog('error', `Geo failed: ${data.error}`);
+      }
+    } catch (error) {
+      addLog('error', `Geo error: ${error.message}`);
+    }
+
+    setContextMenu(null);
+  };
+
+  const handleInfo = async () => {
+    if (!selectedDevice) return;
+    addLog('info', `Getting info for ${selectedDevice.address}...`);
+
+    try {
+      const res = await fetch('/api/device/info', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: selectedDevice.address })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        addLog('success', `Info:\n${data.info}`);
+      } else {
+        addLog('error', `Info failed: ${data.error}`);
+      }
+    } catch (error) {
+      addLog('error', `Info error: ${error.message}`);
+    }
+
+    setContextMenu(null);
+  };
+
+  const handleName = async () => {
+    if (!selectedDevice) return;
+    addLog('info', `Getting name for ${selectedDevice.address}...`);
+
+    try {
+      const res = await fetch('/api/device/name', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: selectedDevice.address })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        addLog('success', `Name: ${data.name}`);
+      } else {
+        addLog('error', `Name failed: ${data.error}`);
+      }
+    } catch (error) {
+      addLog('error', `Name error: ${error.message}`);
+    }
+
+    setContextMenu(null);
+  };
 
   return (
-    <div className="h-screen flex flex-col bg-bluek9-darker">
-      {/* Audio element for alerts */}
-      <audio ref={audioRef} src="/alert.mp3" preload="auto" />
-
+    <div className="min-h-screen bg-stone-900 text-white">
       {/* Header */}
-      <div className="bg-bluek9-dark border-b border-bluek9-cyan/30 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <h1 className="text-2xl font-bold text-bluek9-cyan">BlueK9</h1>
-            <div className="flex items-center space-x-2">
-              <div className={`w-3 h-3 rounded-full ${gpsLocation ? 'bg-green-500' : 'bg-red-500'} animate-pulse`} />
-              <span className="text-sm text-gray-400">
-                {gpsLocation
-                  ? `GPS: ${gpsLocation.lat.toFixed(6)}, ${gpsLocation.lon.toFixed(6)}`
-                  : 'GPS: Acquiring...'}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-3">
-            <button
-              onClick={() => setShowAnalytics(!showAnalytics)}
-              className="px-4 py-2 bg-amber-900 hover:bg-amber-800 text-white rounded transition"
-            >
-              Analytics
-            </button>
-            <button
-              onClick={() => setShowTargetManager(!showTargetManager)}
-              className="px-4 py-2 bg-amber-900 hover:bg-amber-800 text-white rounded transition"
-            >
-              Targets
-            </button>
-
-            {/* Scan Mode Selector */}
-            <div className="flex items-center gap-2 border border-green-700 rounded px-2 py-1">
-              <span className="text-xs text-green-400">Scan:</span>
-              <select
-                value={scanMode}
-                onChange={(e) => setScanMode(e.target.value)}
-                disabled={scanning}
-                className="bg-stone-800 text-white text-sm border border-green-700 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-green-600 disabled:opacity-50"
-              >
-                <option value="both">WiFi + BT</option>
-                <option value="wifi">WiFi Only</option>
-                <option value="bluetooth">BT Only</option>
-              </select>
-            </div>
-
-            {scanning ? (
-              <button
-                onClick={handleStopScan}
-                className="px-4 py-2 bg-red-900 hover:bg-red-800 text-white rounded transition font-medium"
-              >
-                STOP
-              </button>
-            ) : (
-              <button
-                onClick={handleStartScan}
-                className="px-4 py-2 bg-green-800 hover:bg-green-700 text-white rounded transition font-medium"
-              >
-                START
-              </button>
-            )}
-            <button
-              onClick={handleClearDevices}
-              className="px-4 py-2 bg-orange-700 hover:bg-orange-600 text-white rounded transition"
-            >
-              Clear
-            </button>
-            <button
-              onClick={handleExport}
-              className="px-4 py-2 bg-amber-900 hover:bg-amber-800 text-white rounded transition"
-            >
-              Export
-            </button>
-            <button
-              onClick={() => setShowSettings(!showSettings)}
-              className="p-2 bg-stone-700 hover:bg-stone-600 text-white rounded transition"
-              title="Settings"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            </button>
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded transition border border-gray-600"
-            >
-              Logout
-            </button>
-          </div>
+      <div className="bg-stone-800 border-b border-green-700 p-4">
+        <div className="flex justify-between items-center">
+          <h1 className="text-2xl font-bold text-green-400">
+            BlueK9 - Bluetooth Scanner & Geolocation
+          </h1>
+          <button
+            onClick={handleLogout}
+            className="px-4 py-2 bg-red-900 hover:bg-red-800 text-white rounded transition"
+          >
+            Logout
+          </button>
         </div>
+      </div>
 
-        {/* Status Bar */}
-        <div className="mt-3 flex items-center space-x-6 text-sm">
-          <div className="flex items-center space-x-2">
-            <div className={`w-2 h-2 rounded-full ${scanning ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`} />
-            <span className="text-gray-400">
-              {scanning ? 'Scanning Active' : 'Scanning Inactive'}
-            </span>
-          </div>
-          <div className="text-gray-400">
-            Devices: <span className="text-white font-semibold">{devices.length}</span>
-          </div>
-          <div className="text-gray-400">
-            Targets: <span className="text-white font-semibold">{targets.length}</span>
-          </div>
-          <div className="text-gray-400">
-            Radios: <span className="text-white font-semibold">{radios.filter(r => r.enabled).length}/{radios.length}</span>
-          </div>
+      {/* Toolbar */}
+      <div className="bg-stone-800 border-b border-green-700 p-3">
+        <div className="flex gap-3 items-center flex-wrap">
+          <button
+            onClick={() => setShowRadioManager(!showRadioManager)}
+            className="px-4 py-2 bg-amber-900 hover:bg-amber-800 text-white rounded transition"
+          >
+            Radios
+          </button>
+
+          {scanning ? (
+            <button
+              onClick={handleStopScan}
+              className="px-4 py-2 bg-red-900 hover:bg-red-800 text-white rounded transition font-medium"
+            >
+              STOP
+            </button>
+          ) : (
+            <button
+              onClick={handleStartScan}
+              className="px-4 py-2 bg-green-800 hover:bg-green-700 text-white rounded transition font-medium"
+            >
+              START
+            </button>
+          )}
+
+          <button
+            onClick={handleClearDevices}
+            className="px-4 py-2 bg-orange-700 hover:bg-orange-600 text-white rounded transition"
+          >
+            Clear
+          </button>
+
+          <button
+            onClick={handleExport}
+            className="px-4 py-2 bg-amber-900 hover:bg-amber-800 text-white rounded transition"
+          >
+            Export
+          </button>
+
+          {gpsLocation && (
+            <div className="ml-auto text-sm text-green-400">
+              GPS: {gpsLocation.lat.toFixed(6)}, {gpsLocation.lon.toFixed(6)}
+            </div>
+          )}
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left Panel - Map */}
-        <div className="flex-1 flex flex-col">
-          <MapComponent
-            devices={devices}
-            targets={targets}
-            gpsLocation={gpsLocation}
-          />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 p-4">
+        {/* Map */}
+        <div className="bg-stone-800 border border-green-700 rounded-lg p-4">
+          <h2 className="text-xl font-bold text-green-400 mb-4">Map View</h2>
+          <div className="h-96">
+            <MapComponent devices={devices} currentLocation={gpsLocation} />
+          </div>
         </div>
 
-        {/* Right Panel - Survey Table and Logs */}
-        <div className="w-2/5 flex flex-col border-l border-bluek9-cyan/30">
-          {/* Device Type Filter */}
-          <div className="flex items-center justify-between px-4 py-2 bg-bluek9-darker border-b border-bluek9-cyan/30">
-            <div className="flex space-x-2">
-              <button
-                onClick={() => setDeviceFilter('all')}
-                className={`px-3 py-1 rounded transition text-sm ${
-                  deviceFilter === 'all'
-                    ? 'bg-bluek9-cyan text-black font-medium'
-                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                }`}
-              >
-                All ({devices.length})
-              </button>
-              <button
-                onClick={() => setDeviceFilter('bluetooth')}
-                className={`px-3 py-1 rounded transition text-sm ${
-                  deviceFilter === 'bluetooth'
-                    ? 'bg-bluek9-cyan text-black font-medium'
-                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                }`}
-              >
-                Bluetooth ({devices.filter(d => d.deviceType !== 'WiFi' && d.deviceType !== 'WiFi AP').length})
-              </button>
-              <button
-                onClick={() => setDeviceFilter('wifi')}
-                className={`px-3 py-1 rounded transition text-sm ${
-                  deviceFilter === 'wifi'
-                    ? 'bg-bluek9-cyan text-black font-medium'
-                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                }`}
-              >
-                WiFi ({devices.filter(d => d.deviceType === 'WiFi' || d.deviceType === 'WiFi AP').length})
-              </button>
-            </div>
-          </div>
-
-          {/* Survey Table */}
-          <div className="flex-1 overflow-hidden">
+        {/* Devices Table */}
+        <div className="bg-stone-800 border border-green-700 rounded-lg p-4">
+          <h2 className="text-xl font-bold text-green-400 mb-4">
+            Bluetooth Devices ({devices.length})
+          </h2>
+          <div className="h-96 overflow-auto">
             <SurveyTable
-              devices={devices.filter(d => {
-                if (deviceFilter === 'all') return true;
-                if (deviceFilter === 'bluetooth') return d.deviceType !== 'WiFi' && d.deviceType !== 'WiFi AP';
-                if (deviceFilter === 'wifi') return d.deviceType === 'WiFi' || d.deviceType === 'WiFi AP';
-                return true;
-              })}
-              targets={targets}
+              devices={devices}
+              onDeviceRightClick={handleDeviceRightClick}
             />
           </div>
+        </div>
 
-          {/* Log Panel */}
-          <div className="h-64 border-t border-bluek9-cyan/30">
-            <LogPanel logs={logs} />
-          </div>
+        {/* Logs */}
+        <div className="lg:col-span-2 bg-stone-800 border border-green-700 rounded-lg p-4">
+          <h2 className="text-xl font-bold text-green-400 mb-4">Activity Log</h2>
+          <LogPanel logs={logs} />
         </div>
       </div>
 
-      {/* Modals */}
-      {showTargetManager && (
-        <TargetManager
-          targets={targets}
-          onClose={() => setShowTargetManager(false)}
-        />
-      )}
-
+      {/* Radio Manager Modal */}
       {showRadioManager && (
-        <RadioManager
-          radios={radios}
-          onClose={() => setShowRadioManager(false)}
-        />
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="bg-stone-800 border border-green-700 rounded-lg p-6 max-w-4xl w-full max-h-screen overflow-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-green-400">Radio Manager</h2>
+              <button
+                onClick={() => setShowRadioManager(false)}
+                className="text-red-500 hover:text-red-400 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+            <RadioManager radios={radios} onUpdate={(r) => setRadios(r)} />
+          </div>
+        </div>
       )}
 
-      {showSMSConfig && (
-        <SMSConfig
-          onClose={() => setShowSMSConfig(false)}
-        />
-      )}
-
-      {showAnalytics && (
-        <AnalyticsPanel
-          devices={devices}
-          onClose={() => setShowAnalytics(false)}
-        />
-      )}
-
-      {showSettings && (
-        <SettingsManager
-          onClose={() => setShowSettings(false)}
-        />
+      {/* Context Menu */}
+      {contextMenu && (
+        <div
+          className="fixed bg-stone-700 border border-green-600 rounded shadow-lg z-50 min-w-[150px]"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            onClick={handleGeo}
+            className="w-full text-left px-4 py-2 hover:bg-stone-600 text-white"
+          >
+            🎯 Geolocate
+          </button>
+          <button
+            onClick={handleInfo}
+            className="w-full text-left px-4 py-2 hover:bg-stone-600 text-white"
+          >
+            ℹ️ Get Info
+          </button>
+          <button
+            onClick={handleName}
+            className="w-full text-left px-4 py-2 hover:bg-stone-600 text-white"
+          >
+            📝 Get Name
+          </button>
+        </div>
       )}
     </div>
   );

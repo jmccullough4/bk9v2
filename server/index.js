@@ -2,13 +2,13 @@ const express = require('express');
 const next = require('next');
 const http = require('http');
 const { Server } = require('socket.io');
+const { exec } = require('child_process');
+const util = require('util');
+const execPromise = util.promisify(exec);
+
 const BluetoothScanner = require('./bluetooth/scanner');
-const WiFiScanner = require('./wifi/scanner');
-const KismetScanner = require('./kismet/scanner');
 const GPSService = require('./gps/service');
-const SMSService = require('./sms/service');
 const Database = require('./database/db');
-const authMiddleware = require('./auth/middleware');
 
 const dev = process.env.NODE_ENV !== 'production';
 const app = next({ dev });
@@ -25,111 +25,70 @@ app.prepare().then(() => {
     }
   });
 
-  // Initialize services
+  // Initialize services - Bluetooth scanner only
   const db = new Database();
   const gpsService = new GPSService(io, db);
   const bluetoothScanner = new BluetoothScanner(db, io, gpsService);
-  const wifiScanner = new WiFiScanner();
-  const kismetScanner = new KismetScanner(db, io);
-  const smsService = new SMSService(db);
 
   expressApp.use(express.json());
 
   // Auth endpoint
   expressApp.post('/api/auth/login', (req, res) => {
     const { username, password } = req.body;
-
     if (username === 'bluek9' && password === 'warhammer') {
-      const token = 'authenticated'; // Simple token for now
-      res.json({ success: true, token });
+      res.json({ success: true, token: 'authenticated' });
     } else {
       res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
   });
 
-  // API endpoints
+  // Get all devices
   expressApp.get('/api/devices', (req, res) => {
     const devices = db.getDevices();
     res.json(devices);
   });
 
-  expressApp.get('/api/targets', (req, res) => {
-    const targets = db.getTargets();
-    res.json(targets);
-  });
-
-  expressApp.post('/api/targets', (req, res) => {
-    const target = db.addTarget(req.body);
-    io.emit('targetAdded', target);
-    res.json(target);
-  });
-
-  expressApp.delete('/api/targets/:address', (req, res) => {
-    db.removeTarget(req.params.address);
-    io.emit('targetRemoved', req.params.address);
-    res.json({ success: true });
-  });
-
+  // Get radios
   expressApp.get('/api/radios', (req, res) => {
     const radios = db.getRadios();
     res.json({ radios });
   });
 
+  // Add radio
   expressApp.post('/api/radios', (req, res) => {
     const { type, device } = req.body;
     const radio = db.addRadio(type, device);
     res.json({ radio });
   });
 
+  // Remove radio
   expressApp.delete('/api/radios/:id', (req, res) => {
     db.removeRadio(parseInt(req.params.id));
     res.json({ success: true });
   });
 
+  // Start Bluetooth scanning
   expressApp.post('/api/scan/start', async (req, res) => {
-    console.log('[SERVER-DEBUG] Scan start requested');
-    const { mode } = req.body; // 'wifi', 'bluetooth', or 'both'
-
-    let message = '';
-
-    // Start WiFi scanning (Kismet)
-    if (mode === 'wifi' || mode === 'both' || !mode) {
-      console.log('[SERVER-DEBUG] Starting Kismet WiFi scanner');
-      await kismetScanner.startScanning();
-      message += 'WiFi scanning started. ';
-    }
-
-    // Start Bluetooth scanning (hcitool/bluetoothctl)
-    if (mode === 'bluetooth' || mode === 'both' || !mode) {
-      console.log('[SERVER-DEBUG] Starting Bluetooth scanner');
-      await bluetoothScanner.startScanning();
-      message += 'Bluetooth scanning started.';
-    }
-
-    res.json({ success: true, message: message.trim() || 'Scanning started' });
+    console.log('[BlueK9] Starting Bluetooth scanner');
+    await bluetoothScanner.startScanning();
+    res.json({ success: true, message: 'Bluetooth scanning started' });
   });
 
+  // Stop scanning
   expressApp.post('/api/scan/stop', async (req, res) => {
-    console.log('[SERVER-DEBUG] Scan stop requested');
-
-    // Stop both scanners
-    kismetScanner.stopScanning();
+    console.log('[BlueK9] Stopping Bluetooth scanner');
     bluetoothScanner.stopScanning();
-
-    res.json({ success: true, message: 'All scanning stopped' });
+    res.json({ success: true, message: 'Bluetooth scanning stopped' });
   });
 
+  // Clear devices
   expressApp.post('/api/devices/clear', (req, res) => {
     db.clearDevices();
     io.emit('devicesClear');
     res.json({ success: true });
   });
 
-  expressApp.get('/api/logs', (req, res) => {
-    const logs = db.getLogs();
-    res.json(logs);
-  });
-
+  // Export CSV
   expressApp.get('/api/export/csv', (req, res) => {
     const csv = db.exportToCSV();
     res.setHeader('Content-Type', 'text/csv');
@@ -137,32 +96,91 @@ app.prepare().then(() => {
     res.send(csv);
   });
 
-  expressApp.post('/api/sms/numbers', (req, res) => {
-    const numbers = req.body.numbers;
-    db.setSMSNumbers(numbers);
-    smsService.setNumbers(numbers);
-    res.json({ success: true });
+  // Get logs
+  expressApp.get('/api/logs', (req, res) => {
+    const logs = db.getLogs();
+    res.json(logs);
   });
 
-  expressApp.get('/api/sms/numbers', (req, res) => {
-    const numbers = db.getSMSNumbers();
-    res.json({ numbers });
-  });
-
+  // GPS settings update
   expressApp.post('/api/settings/gps/update', async (req, res) => {
     try {
       const { gpsSource } = req.body;
-      console.log('[SERVER-DEBUG] GPS settings update requested:', gpsSource);
-
-      // Update GPS mode in real-time
       if (gpsSource) {
         await gpsService.setGPSSource(gpsSource);
       }
-
       res.json({ success: true });
     } catch (error) {
       console.error('Error updating GPS mode:', error);
       res.status(500).json({ error: 'Failed to update GPS mode' });
+    }
+  });
+
+  // Device command: Get info (hcitool info)
+  expressApp.post('/api/device/info', async (req, res) => {
+    try {
+      const { address } = req.body;
+      const { stdout } = await execPromise(`hcitool info ${address}`);
+      res.json({ success: true, info: stdout });
+    } catch (error) {
+      res.json({ success: false, error: error.message });
+    }
+  });
+
+  // Device command: Get name (hcitool name)
+  expressApp.post('/api/device/name', async (req, res) => {
+    try {
+      const { address } = req.body;
+      const { stdout } = await execPromise(`hcitool name ${address}`);
+      res.json({ success: true, name: stdout.trim() });
+    } catch (error) {
+      res.json({ success: false, error: error.message });
+    }
+  });
+
+  // Device command: Geolocate (l2ping + hcitool rssi)
+  expressApp.post('/api/device/geo', async (req, res) => {
+    try {
+      const { address } = req.body;
+
+      // Get RSSI using hcitool
+      let rssi = null;
+      try {
+        const { stdout: rssiOut } = await execPromise(`hcitool rssi ${address}`);
+        const rssiMatch = rssiOut.match(/RSSI return value: (-?\d+)/);
+        if (rssiMatch) {
+          rssi = parseInt(rssiMatch[1]);
+        }
+      } catch (e) {
+        // Try l2ping to establish connection first
+        await execPromise(`timeout 2 l2ping -c 1 ${address}`);
+        const { stdout: rssiOut } = await execPromise(`hcitool rssi ${address}`);
+        const rssiMatch = rssiOut.match(/RSSI return value: (-?\d+)/);
+        if (rssiMatch) {
+          rssi = parseInt(rssiMatch[1]);
+        }
+      }
+
+      if (rssi !== null) {
+        // Calculate distance from RSSI (simplified path loss model)
+        // RSSI = -10n * log10(d) + A
+        // Where: n = path loss exponent (2-4, use 2.5 for indoor)
+        //        A = RSSI at 1 meter (typically -50 to -60)
+        const A = -55; // RSSI at 1 meter
+        const n = 2.5; // Path loss exponent
+        const distance = Math.pow(10, (A - rssi) / (10 * n));
+
+        res.json({
+          success: true,
+          rssi,
+          distance: distance.toFixed(2),
+          unit: 'meters'
+        });
+      } else {
+        res.json({ success: false, error: 'Could not get RSSI' });
+      }
+    } catch (error) {
+      res.json({ success: false, error: error.message });
     }
   });
 
@@ -172,7 +190,6 @@ app.prepare().then(() => {
 
     // Send initial data
     socket.emit('devices', db.getDevices());
-    socket.emit('targets', db.getTargets());
     socket.emit('gpsUpdate', gpsService.getCurrentLocation());
 
     socket.on('disconnect', () => {
@@ -180,90 +197,10 @@ app.prepare().then(() => {
     });
   });
 
-  // Handle device detection events
+  // Handle Bluetooth device detection
   bluetoothScanner.on('deviceDetected', (device) => {
-    console.log('[SERVER-DEBUG] Bluetooth device detected event received:', device.address);
+    console.log('[BlueK9] Bluetooth device detected:', device.address);
     io.emit('deviceDetected', device);
-    console.log('[SERVER-DEBUG] deviceDetected emitted to socket.io clients');
-
-    // Check if device is a target
-    const targets = db.getTargets();
-    const isTarget = targets.some(t =>
-      t.address.toLowerCase() === device.address.toLowerCase()
-    );
-
-    if (isTarget) {
-      console.log('[SERVER-DEBUG] Device is a TARGET:', device.address);
-      io.emit('targetDetected', device);
-      smsService.sendTargetAlert(device, gpsService.getCurrentLocation());
-    }
-  });
-
-  // Handle WiFi device detection events
-  wifiScanner.on('device', (device) => {
-    console.log('[SERVER-DEBUG] WiFi device detected event received:', device.address);
-    io.emit('deviceDetected', device);
-    console.log('[SERVER-DEBUG] WiFi deviceDetected emitted to socket.io clients');
-
-    // Check if device is a target
-    const targets = db.getTargets();
-    const isTarget = targets.some(t =>
-      t.address.toLowerCase() === device.address.toLowerCase()
-    );
-
-    if (isTarget) {
-      console.log('[SERVER-DEBUG] WiFi device is a TARGET:', device.address);
-      io.emit('targetDetected', device);
-      smsService.sendTargetAlert(device, gpsService.getCurrentLocation());
-    }
-  });
-
-  // Handle WiFi scanner logs
-  wifiScanner.on('log', (log) => {
-    io.emit('log', log);
-  });
-
-  // Handle Kismet device detection events
-  kismetScanner.on('device', async (deviceData) => {
-    console.log('[SERVER-DEBUG] Kismet device detected:', deviceData.address, deviceData.deviceType);
-
-    // Get current GPS location
-    const gpsLocation = gpsService.getCurrentLocation();
-
-    // Build complete device object
-    const device = {
-      address: deviceData.address,
-      name: deviceData.name,
-      manufacturer: deviceData.manufacturer,
-      deviceType: deviceData.deviceType,
-      rssi: deviceData.rssi,
-      systemLat: gpsLocation.lat,
-      systemLon: gpsLocation.lon,
-      emitterLat: gpsLocation.lat, // For now, use system location
-      emitterLon: gpsLocation.lon,
-      emitterAccuracy: 50,
-      radioId: deviceData.radioId,
-      channel: deviceData.channel
-    };
-
-    // Save to database
-    const savedDevice = db.upsertDevice(device);
-
-    // Emit to clients
-    io.emit('deviceDetected', savedDevice);
-    console.log('[SERVER-DEBUG] Kismet deviceDetected emitted to socket.io clients');
-
-    // Check if device is a target
-    const targets = db.getTargets();
-    const isTarget = targets.some(t =>
-      t.address.toLowerCase() === device.address.toLowerCase()
-    );
-
-    if (isTarget) {
-      console.log('[SERVER-DEBUG] Kismet device is a TARGET:', device.address);
-      io.emit('targetDetected', savedDevice);
-      smsService.sendTargetAlert(savedDevice, gpsLocation);
-    }
   });
 
   // Handle GPS updates
@@ -276,18 +213,16 @@ app.prepare().then(() => {
     return handle(req, res);
   });
 
+  // Start server
   server.listen(PORT, '0.0.0.0', (err) => {
     if (err) throw err;
     console.log(`> BlueK9 ready on http://0.0.0.0:${PORT}`);
     console.log(`> Access locally: http://localhost:${PORT}`);
     console.log(`> Access from network: http://<your-ip>:${PORT}`);
-    console.log('> Starting Kismet WiFi scanner...');
-    kismetScanner.initialize();
     console.log('> Starting Bluetooth scanner...');
     bluetoothScanner.initialize();
     console.log('> Starting GPS service...');
     gpsService.initialize();
-    console.log('> Starting SMS service...');
-    smsService.initialize();
+    console.log('> BlueK9 - Bluetooth Scanner & Geolocation Tool');
   });
 });
