@@ -1,4 +1,6 @@
-const { SerialPort } = require('serialport');
+const { exec } = require('child_process');
+const util = require('util');
+const execPromise = util.promisify(exec);
 
 class SMSService {
   constructor(db) {
@@ -9,28 +11,18 @@ class SMSService {
   }
 
   async initialize() {
-    console.log('[SMS] Initializing SMS service');
+    console.log('[SMS] Initializing SMS service with mmcli (ModemManager)');
 
     try {
-      // IMPORTANT: Don't auto-detect modem to avoid interfering with internet connection
-      // The SIMCOM7600 has multiple USB ports - some are for PPP/internet, some for AT commands
-      // Only use the modem if explicitly configured in settings
-      const configuredModemPath = this.db.getSetting('smsModemPath');
+      // Detect modem using mmcli
+      await this.detectModemWithMMCLI();
 
-      if (configuredModemPath) {
-        const fs = require('fs');
-        if (fs.existsSync(configuredModemPath)) {
-          this.modemPath = configuredModemPath;
-          console.log(`[SMS] SMS modem configured at ${this.modemPath}`);
-        } else {
-          console.log(`[SMS] Configured modem path ${configuredModemPath} not found`);
-          console.log('[SMS] SMS messages will be logged only');
-        }
+      if (this.modemPath) {
+        console.log(`[SMS] Modem found: ${this.modemPath}`);
+        console.log('[SMS] SMS alerts enabled via ModemManager (no port conflicts!)');
       } else {
-        console.log('[SMS] SMS modem not configured');
-        console.log('[SMS] To enable SMS alerts, configure the modem port in Settings > SMS');
-        console.log('[SMS] IMPORTANT: Use a port that does NOT interfere with your internet connection');
-        console.log('[SMS] For SIMCOM7600: typically /dev/ttyUSB2 or /dev/ttyUSB3 (NOT the PPP port)');
+        console.log('[SMS] No modem found by ModemManager');
+        console.log('[SMS] Make sure ModemManager is running: systemctl status ModemManager');
         console.log('[SMS] SMS messages will be logged only');
       }
 
@@ -40,6 +32,32 @@ class SMSService {
     } catch (error) {
       console.log('[SMS] Error initializing SMS service:', error.message);
       console.log('[SMS] SMS messages will be logged only');
+    }
+  }
+
+  async detectModemWithMMCLI() {
+    try {
+      const { stdout } = await execPromise('mmcli -L');
+
+      if (stdout.includes('No modems were found')) {
+        console.log('[SMS] No modems detected by ModemManager');
+        return;
+      }
+
+      // Parse modem path from mmcli -L output
+      // Example line: /org/freedesktop/ModemManager1/Modem/0 [QUALCOMM INCORPORATED]
+      const lines = stdout.split('\n');
+      for (const line of lines) {
+        if (line.includes('/Modem/')) {
+          const parts = line.trim().split(/\s+/);
+          this.modemPath = parts[0];
+          console.log(`[SMS] Detected modem path: ${this.modemPath}`);
+          return;
+        }
+      }
+    } catch (error) {
+      console.log('[SMS] mmcli not available or error:', error.message);
+      console.log('[SMS] Install ModemManager: apt-get install modemmanager');
     }
   }
 
@@ -106,6 +124,8 @@ RSSI: ${device.rssi} dBm`;
       try {
         await this.sendSMS(number, message);
         console.log(`[SMS] Alert sent to ${number}`);
+        // Small delay between messages to avoid overwhelming modem
+        await new Promise(resolve => setTimeout(resolve, 1000));
       } catch (err) {
         console.error(`[SMS] Failed to send alert to ${number}:`, err);
       }
@@ -116,7 +136,9 @@ RSSI: ${device.rssi} dBm`;
     // Add +1 if not present (US numbers)
     let fullNumber = phoneNumber;
     if (phoneNumber.length === 10) {
-      fullNumber = '1' + phoneNumber;
+      fullNumber = '+1' + phoneNumber;
+    } else if (!phoneNumber.startsWith('+')) {
+      fullNumber = '+1' + phoneNumber;
     }
 
     // If no modem path, just log
@@ -127,80 +149,47 @@ RSSI: ${device.rssi} dBm`;
       return;
     }
 
-    let port = null;
-
     try {
-      // Open port for this message only
-      port = new SerialPort({
-        path: this.modemPath,
-        baudRate: 115200,
-        autoOpen: false
-      });
+      console.log(`[SMS] Sending SMS to ${fullNumber} via mmcli`);
 
-      // Open the port
-      await new Promise((resolve, reject) => {
-        port.open((err) => {
-          if (err) reject(err);
-          else resolve();
-        });
-      });
+      // Clean message text - replace commas with semicolons (mmcli uses commas as separators)
+      const safeText = message.replace(/,/g, ';');
 
-      console.log('[SMS] Port opened for message');
+      // Step 1: Create SMS using mmcli
+      const smsArg = `text=${safeText},number=${fullNumber}`;
+      const createCmd = `mmcli -m ${this.modemPath} --messaging-create-sms="${smsArg}"`;
 
-      // Send AT command sequence (matching your Python script)
-      await this.sendATCommand(port, 'AT', 500);
-      await this.sendATCommand(port, 'AT+CMGF=1', 500);
-      await this.sendATCommand(port, `AT+CMGS="${fullNumber}"`, 1000);
+      console.log('[SMS] Creating SMS with mmcli...');
+      const { stdout: createOutput } = await execPromise(createCmd);
 
-      // Write message text
-      await new Promise((resolve, reject) => {
-        port.write(message, (err) => {
-          if (err) return reject(err);
-          setTimeout(resolve, 200);
-        });
-      });
-
-      // Send Ctrl+Z to send the message
-      await new Promise((resolve, reject) => {
-        port.write(Buffer.from([26]), (err) => {
-          if (err) return reject(err);
-          setTimeout(resolve, 3000); // Wait for send confirmation
-        });
-      });
-
-      console.log('[SMS] Message sent successfully');
-
-    } catch (error) {
-      console.error('[SMS] Error sending SMS:', error.message);
-      throw error;
-    } finally {
-      // Always close the port
-      if (port && port.isOpen) {
-        await new Promise((resolve) => {
-          port.close((err) => {
-            if (err) console.error('[SMS] Error closing port:', err.message);
-            console.log('[SMS] Port closed');
-            resolve();
-          });
-        });
-      }
-    }
-  }
-
-  sendATCommand(port, command, wait = 500) {
-    return new Promise((resolve, reject) => {
-      if (!port || !port.isOpen) {
-        return reject(new Error('Port not open'));
-      }
-
-      console.log(`[SMS] >> ${command}`);
-      port.write(command + '\r', (err) => {
-        if (err) {
-          return reject(err);
+      // Extract SMS ID from output
+      // Example: Successfully created new SMS: /org/freedesktop/ModemManager1/SMS/3
+      let smsId = null;
+      const lines = createOutput.split('\n');
+      for (const line of lines) {
+        if (line.includes('Successfully created new SMS:')) {
+          const smsPath = line.split(':')[1].trim();
+          smsId = smsPath.split('/').pop();
+          console.log(`[SMS] Created SMS with ID: ${smsId}`);
+          break;
         }
-        setTimeout(resolve, wait);
-      });
-    });
+      }
+
+      if (!smsId) {
+        throw new Error('Could not extract SMS ID from mmcli output');
+      }
+
+      // Step 2: Send the SMS
+      console.log(`[SMS] Sending SMS ID ${smsId}...`);
+      const sendCmd = `mmcli -s ${smsId} --send`;
+      await execPromise(sendCmd);
+
+      console.log(`[SMS] ✓ SMS sent successfully to ${fullNumber}`);
+    } catch (error) {
+      console.error('[SMS] ✗ Error sending SMS:', error.message);
+      console.error('[SMS] Message that failed:', message);
+      throw error;
+    }
   }
 }
 
