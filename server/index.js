@@ -4,6 +4,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const BluetoothScanner = require('./bluetooth/scanner');
 const WiFiScanner = require('./wifi/scanner');
+const KismetScanner = require('./kismet/scanner');
 const GPSService = require('./gps/service');
 const SMSService = require('./sms/service');
 const Database = require('./database/db');
@@ -28,6 +29,7 @@ app.prepare().then(() => {
   const db = new Database();
   const bluetoothScanner = new BluetoothScanner(db, io);
   const wifiScanner = new WiFiScanner();
+  const kismetScanner = new KismetScanner(db, io);
   const gpsService = new GPSService(io, db);
   const smsService = new SMSService(db);
 
@@ -86,30 +88,18 @@ app.prepare().then(() => {
 
   expressApp.post('/api/scan/start', async (req, res) => {
     console.log('[SERVER-DEBUG] Scan start requested');
-    bluetoothScanner.startScanning();
 
-    // Get WiFi radios from database
-    const radios = db.getRadios ? db.getRadios() : [];
-    const wifiRadios = radios.filter(r => r.type === 'wifi').map(r => r.device);
+    // Start Kismet scanner (handles both WiFi and Bluetooth)
+    console.log('[SERVER-DEBUG] Starting Kismet scanner');
+    await kismetScanner.startScanning();
 
-    console.log('[SERVER-DEBUG] WiFi radios configured:', wifiRadios);
-
-    // Start WiFi scanning if WiFi radios are configured
-    if (wifiRadios.length > 0) {
-      await wifiScanner.startScan(wifiRadios);
-    } else {
-      // Start with auto-detection or virtual scan
-      console.log('[SERVER-DEBUG] Starting WiFi scan with auto-detection');
-      await wifiScanner.startScan();
-    }
-
-    res.json({ success: true, message: 'Bluetooth and WiFi scanning started' });
+    res.json({ success: true, message: 'Kismet scanning started (WiFi & Bluetooth)' });
   });
 
   expressApp.post('/api/scan/stop', async (req, res) => {
-    bluetoothScanner.stopScanning();
-    await wifiScanner.stopScan();
-    res.json({ success: true, message: 'Bluetooth and WiFi scanning stopped' });
+    console.log('[SERVER-DEBUG] Scan stop requested');
+    kismetScanner.stopScanning();
+    res.json({ success: true, message: 'Kismet scanning stopped' });
   });
 
   expressApp.post('/api/devices/clear', (req, res) => {
@@ -216,6 +206,49 @@ app.prepare().then(() => {
     io.emit('log', log);
   });
 
+  // Handle Kismet device detection events
+  kismetScanner.on('device', async (deviceData) => {
+    console.log('[SERVER-DEBUG] Kismet device detected:', deviceData.address, deviceData.deviceType);
+
+    // Get current GPS location
+    const gpsLocation = gpsService.getCurrentLocation();
+
+    // Build complete device object
+    const device = {
+      address: deviceData.address,
+      name: deviceData.name,
+      manufacturer: deviceData.manufacturer,
+      deviceType: deviceData.deviceType,
+      rssi: deviceData.rssi,
+      systemLat: gpsLocation.lat,
+      systemLon: gpsLocation.lon,
+      emitterLat: gpsLocation.lat, // For now, use system location
+      emitterLon: gpsLocation.lon,
+      emitterAccuracy: 50,
+      radioId: deviceData.radioId,
+      channel: deviceData.channel
+    };
+
+    // Save to database
+    const savedDevice = db.upsertDevice(device);
+
+    // Emit to clients
+    io.emit('deviceDetected', savedDevice);
+    console.log('[SERVER-DEBUG] Kismet deviceDetected emitted to socket.io clients');
+
+    // Check if device is a target
+    const targets = db.getTargets();
+    const isTarget = targets.some(t =>
+      t.address.toLowerCase() === device.address.toLowerCase()
+    );
+
+    if (isTarget) {
+      console.log('[SERVER-DEBUG] Kismet device is a TARGET:', device.address);
+      io.emit('targetDetected', savedDevice);
+      smsService.sendTargetAlert(savedDevice, gpsLocation);
+    }
+  });
+
   // Handle GPS updates
   gpsService.on('locationUpdate', (location) => {
     io.emit('gpsUpdate', location);
@@ -231,8 +264,8 @@ app.prepare().then(() => {
     console.log(`> BlueK9 ready on http://0.0.0.0:${PORT}`);
     console.log(`> Access locally: http://localhost:${PORT}`);
     console.log(`> Access from network: http://<your-ip>:${PORT}`);
-    console.log('> Starting Bluetooth scanner...');
-    bluetoothScanner.initialize();
+    console.log('> Starting Kismet scanner...');
+    kismetScanner.initialize();
     console.log('> Starting GPS service...');
     gpsService.initialize();
     console.log('> Starting SMS service...');
