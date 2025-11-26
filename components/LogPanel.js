@@ -1,9 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 
 export default function LogPanel({ logs }) {
   const logEndRef = useRef(null);
-  const [autoScroll, setAutoScroll] = React.useState(true);
+  const [autoScroll, setAutoScroll] = useState(true);
 
   useEffect(() => {
     if (autoScroll && logEndRef.current) {
