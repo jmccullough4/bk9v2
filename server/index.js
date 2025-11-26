@@ -27,10 +27,10 @@ app.prepare().then(() => {
 
   // Initialize services
   const db = new Database();
-  const bluetoothScanner = new BluetoothScanner(db, io);
+  const gpsService = new GPSService(io, db);
+  const bluetoothScanner = new BluetoothScanner(db, io, gpsService);
   const wifiScanner = new WiFiScanner();
   const kismetScanner = new KismetScanner(db, io);
-  const gpsService = new GPSService(io, db);
   const smsService = new SMSService(db);
 
   expressApp.use(express.json());
@@ -88,18 +88,35 @@ app.prepare().then(() => {
 
   expressApp.post('/api/scan/start', async (req, res) => {
     console.log('[SERVER-DEBUG] Scan start requested');
+    const { mode } = req.body; // 'wifi', 'bluetooth', or 'both'
 
-    // Start Kismet scanner (handles both WiFi and Bluetooth)
-    console.log('[SERVER-DEBUG] Starting Kismet scanner');
-    await kismetScanner.startScanning();
+    let message = '';
 
-    res.json({ success: true, message: 'Kismet scanning started (WiFi & Bluetooth)' });
+    // Start WiFi scanning (Kismet)
+    if (mode === 'wifi' || mode === 'both' || !mode) {
+      console.log('[SERVER-DEBUG] Starting Kismet WiFi scanner');
+      await kismetScanner.startScanning();
+      message += 'WiFi scanning started. ';
+    }
+
+    // Start Bluetooth scanning (hcitool/bluetoothctl)
+    if (mode === 'bluetooth' || mode === 'both' || !mode) {
+      console.log('[SERVER-DEBUG] Starting Bluetooth scanner');
+      await bluetoothScanner.startScanning();
+      message += 'Bluetooth scanning started.';
+    }
+
+    res.json({ success: true, message: message.trim() || 'Scanning started' });
   });
 
   expressApp.post('/api/scan/stop', async (req, res) => {
     console.log('[SERVER-DEBUG] Scan stop requested');
+
+    // Stop both scanners
     kismetScanner.stopScanning();
-    res.json({ success: true, message: 'Kismet scanning stopped' });
+    bluetoothScanner.stopScanning();
+
+    res.json({ success: true, message: 'All scanning stopped' });
   });
 
   expressApp.post('/api/devices/clear', (req, res) => {
@@ -264,8 +281,10 @@ app.prepare().then(() => {
     console.log(`> BlueK9 ready on http://0.0.0.0:${PORT}`);
     console.log(`> Access locally: http://localhost:${PORT}`);
     console.log(`> Access from network: http://<your-ip>:${PORT}`);
-    console.log('> Starting Kismet scanner...');
+    console.log('> Starting Kismet WiFi scanner...');
     kismetScanner.initialize();
+    console.log('> Starting Bluetooth scanner...');
+    bluetoothScanner.initialize();
     console.log('> Starting GPS service...');
     gpsService.initialize();
     console.log('> Starting SMS service...');

@@ -157,8 +157,8 @@ class KismetScanner extends EventEmitter {
     }
 
     this.scanning = true;
-    console.log('[Kismet] ✓ Starting device polling');
-    this.log('Started Kismet device scanning');
+    console.log('[Kismet-WiFi] ✓ Starting WiFi device polling');
+    this.log('Started Kismet WiFi scanning');
 
     // Poll Kismet for devices every 2 seconds
     this.pollInterval = setInterval(async () => {
@@ -222,17 +222,16 @@ class KismetScanner extends EventEmitter {
       // Update last seen time
       this.seenDevices.set(deviceId, lastTime);
 
-      // Determine device type and extract relevant data
+      // ONLY process WiFi devices - Bluetooth is handled by BluetoothScanner
       let deviceData = null;
 
       if (type === 'Wi-Fi AP' || type === 'Wi-Fi Device' || type === 'Wi-Fi Client') {
         deviceData = this.extractWiFiDevice(kismetDevice);
-      } else if (type === 'BTLE' || type === 'BT') {
-        deviceData = this.extractBluetoothDevice(kismetDevice);
       }
+      // Note: Bluetooth devices (BTLE/BT) are now handled by BluetoothScanner with hcitool
 
       if (deviceData) {
-        console.log('[Kismet] Device:', deviceData.address, '|', deviceData.name, '|', deviceData.deviceType, '| RSSI:', deviceData.rssi);
+        console.log('[Kismet-WiFi] Device:', deviceData.address, '|', deviceData.name, '|', deviceData.deviceType, '| RSSI:', deviceData.rssi);
         this.emit('device', deviceData);
         return true;
       }
@@ -261,23 +260,6 @@ class KismetScanner extends EventEmitter {
       deviceType: type === 'Wi-Fi AP' ? 'WiFi AP' : 'WiFi',
       rssi: signal || null,
       channel: channel || null,
-      radioId: 'kismet'
-    };
-  }
-
-  extractBluetoothDevice(kismetDevice) {
-    const macAddr = kismetDevice['kismet.device.base.macaddr'];
-    const name = kismetDevice['kismet.device.base.name'] || '(Unknown)';
-    const type = kismetDevice['kismet.device.base.type'];
-    const signal = kismetDevice['kismet.device.base.signal']?.['kismet.common.signal.last_signal'];
-    const manuf = kismetDevice['kismet.device.base.manuf'] || 'Unknown';
-
-    return {
-      address: macAddr,
-      name: name,
-      manufacturer: manuf,
-      deviceType: type === 'BTLE' ? 'BLE' : 'Classic',
-      rssi: signal || null,
       radioId: 'kismet'
     };
   }
