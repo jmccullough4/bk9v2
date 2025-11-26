@@ -26,6 +26,7 @@ export default function Dashboard() {
   const [showSMSConfig, setShowSMSConfig] = useState(false);
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [deviceFilter, setDeviceFilter] = useState('all'); // 'all', 'bluetooth', 'wifi'
   const audioRef = useRef(null);
 
   useEffect(() => {
@@ -320,9 +321,53 @@ export default function Dashboard() {
 
         {/* Right Panel - Survey Table and Logs */}
         <div className="w-2/5 flex flex-col border-l border-bluek9-cyan/30">
+          {/* Device Type Filter */}
+          <div className="flex items-center justify-between px-4 py-2 bg-bluek9-darker border-b border-bluek9-cyan/30">
+            <div className="flex space-x-2">
+              <button
+                onClick={() => setDeviceFilter('all')}
+                className={`px-3 py-1 rounded transition text-sm ${
+                  deviceFilter === 'all'
+                    ? 'bg-bluek9-cyan text-black font-medium'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                All ({devices.length})
+              </button>
+              <button
+                onClick={() => setDeviceFilter('bluetooth')}
+                className={`px-3 py-1 rounded transition text-sm ${
+                  deviceFilter === 'bluetooth'
+                    ? 'bg-bluek9-cyan text-black font-medium'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                Bluetooth ({devices.filter(d => d.deviceType !== 'WiFi' && d.deviceType !== 'WiFi AP').length})
+              </button>
+              <button
+                onClick={() => setDeviceFilter('wifi')}
+                className={`px-3 py-1 rounded transition text-sm ${
+                  deviceFilter === 'wifi'
+                    ? 'bg-bluek9-cyan text-black font-medium'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                WiFi ({devices.filter(d => d.deviceType === 'WiFi' || d.deviceType === 'WiFi AP').length})
+              </button>
+            </div>
+          </div>
+
           {/* Survey Table */}
           <div className="flex-1 overflow-hidden">
-            <SurveyTable devices={devices} targets={targets} />
+            <SurveyTable
+              devices={devices.filter(d => {
+                if (deviceFilter === 'all') return true;
+                if (deviceFilter === 'bluetooth') return d.deviceType !== 'WiFi' && d.deviceType !== 'WiFi AP';
+                if (deviceFilter === 'wifi') return d.deviceType === 'WiFi' || d.deviceType === 'WiFi AP';
+                return true;
+              })}
+              targets={targets}
+            />
           </div>
 
           {/* Log Panel */}
