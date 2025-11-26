@@ -1,5 +1,6 @@
 const EventEmitter = require('events');
 const http = require('http');
+const https = require('https');
 
 class KismetScanner extends EventEmitter {
   constructor(db, io) {
@@ -9,8 +10,14 @@ class KismetScanner extends EventEmitter {
     this.scanning = false;
     this.pollInterval = null;
     this.seenDevices = new Map(); // Track devices we've already seen
-    this.kismetUrl = 'http://localhost:2501';
+    this.kismetUrl = process.env.KISMET_URL || 'http://localhost:2501';
+    this.kismetApiKey = process.env.KISMET_API_KEY || '';
     this.lastTimestamp = Date.now() / 1000; // Kismet uses Unix timestamps
+
+    console.log('[Kismet] Configured URL:', this.kismetUrl);
+    if (this.kismetApiKey) {
+      console.log('[Kismet] API key configured');
+    }
   }
 
   async initialize() {
@@ -19,24 +26,50 @@ class KismetScanner extends EventEmitter {
     // Check if Kismet is running
     const isRunning = await this.checkKismetRunning();
     if (isRunning) {
-      console.log('[Kismet] Kismet server detected and running');
+      console.log('[Kismet] ✓ Kismet server detected and running');
+      this.log('Kismet server connected');
     } else {
-      console.log('[Kismet] Kismet server not detected');
-      console.log('[Kismet] Start Kismet with: kismet -c wlo1');
+      console.log('[Kismet] ✗ Kismet server not detected at', this.kismetUrl);
+      console.log('[Kismet] To start Kismet: sudo kismet -c wlo1');
+      console.log('[Kismet] Or if running elsewhere, set KISMET_URL environment variable');
     }
   }
 
   async checkKismetRunning() {
     return new Promise((resolve) => {
-      const req = http.get(`${this.kismetUrl}/system/status.json`, (res) => {
-        resolve(res.statusCode === 200);
+      const url = new URL('/system/status.json', this.kismetUrl);
+      const isHttps = url.protocol === 'https:';
+      const httpModule = isHttps ? https : http;
+
+      const options = {
+        hostname: url.hostname,
+        port: url.port || (isHttps ? 443 : 80),
+        path: url.pathname,
+        method: 'GET',
+        timeout: 3000
+      };
+
+      // Add API key if configured
+      if (this.kismetApiKey) {
+        options.headers = {
+          'KISMET': this.kismetApiKey
+        };
+      }
+
+      const req = httpModule.get(options, (res) => {
+        console.log('[Kismet] Health check response:', res.statusCode);
+
+        // Accept 200 or 401 (auth required but server is running)
+        resolve(res.statusCode === 200 || res.statusCode === 401);
       });
 
-      req.on('error', () => {
+      req.on('error', (err) => {
+        console.log('[Kismet] Connection error:', err.message);
         resolve(false);
       });
 
-      req.setTimeout(2000, () => {
+      req.on('timeout', () => {
+        console.log('[Kismet] Connection timeout');
         req.destroy();
         resolve(false);
       });
@@ -45,9 +78,26 @@ class KismetScanner extends EventEmitter {
 
   async fetchDevices() {
     return new Promise((resolve, reject) => {
-      const url = `${this.kismetUrl}/devices/views/all/devices.json`;
+      const url = new URL('/devices/views/all/devices.json', this.kismetUrl);
+      const isHttps = url.protocol === 'https:';
+      const httpModule = isHttps ? https : http;
 
-      http.get(url, (res) => {
+      const options = {
+        hostname: url.hostname,
+        port: url.port || (isHttps ? 443 : 80),
+        path: url.pathname,
+        method: 'GET',
+        timeout: 5000
+      };
+
+      // Add API key if configured
+      if (this.kismetApiKey) {
+        options.headers = {
+          'KISMET': this.kismetApiKey
+        };
+      }
+
+      const req = httpModule.get(options, (res) => {
         let data = '';
 
         res.on('data', (chunk) => {
@@ -55,16 +105,34 @@ class KismetScanner extends EventEmitter {
         });
 
         res.on('end', () => {
-          try {
-            const devices = JSON.parse(data);
-            resolve(devices);
-          } catch (e) {
-            reject(e);
+          if (res.statusCode === 200) {
+            try {
+              const devices = JSON.parse(data);
+              resolve(devices);
+            } catch (e) {
+              console.error('[Kismet] JSON parse error:', e.message);
+              reject(e);
+            }
+          } else if (res.statusCode === 401) {
+            console.error('[Kismet] Authentication required. Set KISMET_API_KEY environment variable.');
+            reject(new Error('Authentication required'));
+          } else {
+            console.error('[Kismet] HTTP', res.statusCode, ':', data.substring(0, 200));
+            reject(new Error(`HTTP ${res.statusCode}`));
           }
         });
-      }).on('error', (e) => {
+      });
+
+      req.on('error', (e) => {
         reject(e);
       });
+
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Request timeout'));
+      });
+
+      req.end();
     });
   }
 
@@ -77,27 +145,29 @@ class KismetScanner extends EventEmitter {
     // Check if Kismet is running
     const isRunning = await this.checkKismetRunning();
     if (!isRunning) {
-      console.log('[Kismet] Error: Kismet server not running');
-      console.log('[Kismet] Start Kismet with: kismet -c wlo1');
+      const msg = 'Kismet server not running';
+      console.log('[Kismet] Error:', msg);
+      console.log('[Kismet] Start Kismet with: sudo kismet -c wlo1');
       this.io.emit('log', {
         level: 'error',
-        message: 'Kismet not running. Start with: kismet -c wlo1',
+        message: `${msg}. Start with: sudo kismet -c wlo1`,
         timestamp: Date.now()
       });
       return;
     }
 
     this.scanning = true;
-    console.log('[Kismet] Starting device polling');
+    console.log('[Kismet] ✓ Starting device polling');
+    this.log('Started Kismet device scanning');
 
-    // Poll Kismet for devices every 3 seconds
+    // Poll Kismet for devices every 2 seconds
     this.pollInterval = setInterval(async () => {
       try {
         await this.pollDevices();
       } catch (error) {
-        console.error('[Kismet] Error polling devices:', error.message);
+        console.error('[Kismet] Poll error:', error.message);
       }
-    }, 3000);
+    }, 2000);
 
     // Do initial poll immediately
     this.pollDevices();
@@ -107,29 +177,45 @@ class KismetScanner extends EventEmitter {
     try {
       const devices = await this.fetchDevices();
 
+      if (!Array.isArray(devices)) {
+        console.error('[Kismet] Expected array of devices, got:', typeof devices);
+        return;
+      }
+
+      let newDeviceCount = 0;
       for (const device of devices) {
-        this.processKismetDevice(device);
+        const processed = this.processKismetDevice(device);
+        if (processed) newDeviceCount++;
+      }
+
+      if (newDeviceCount > 0) {
+        console.log(`[Kismet] Processed ${newDeviceCount} new/updated devices`);
       }
     } catch (error) {
-      console.error('[Kismet] Error fetching devices:', error.message);
+      if (error.message !== 'Authentication required') {
+        console.error('[Kismet] Fetch error:', error.message);
+      }
     }
   }
 
   processKismetDevice(kismetDevice) {
     try {
       // Extract device key (unique identifier)
-      const deviceKey = kismetDevice['kismet.device.base.key'];
       const macAddr = kismetDevice['kismet.device.base.macaddr'];
-      const name = kismetDevice['kismet.device.base.name'] || kismetDevice['kismet.device.base.commonname'] || '(Unknown)';
+      if (!macAddr) return false;
+
+      const name = kismetDevice['kismet.device.base.name'] ||
+                   kismetDevice['kismet.device.base.commonname'] ||
+                   '(Unknown)';
       const type = kismetDevice['kismet.device.base.type'];
-      const lastTime = kismetDevice['kismet.device.base.last_time'];
+      const lastTime = kismetDevice['kismet.device.base.last_time'] || 0;
 
       // Skip if we've already processed this device recently
       const deviceId = `${type}-${macAddr}`;
       if (this.seenDevices.has(deviceId)) {
         const lastSeen = this.seenDevices.get(deviceId);
         if (lastTime <= lastSeen) {
-          return; // Haven't seen new activity for this device
+          return false; // No new activity
         }
       }
 
@@ -139,18 +225,22 @@ class KismetScanner extends EventEmitter {
       // Determine device type and extract relevant data
       let deviceData = null;
 
-      if (type === 'Wi-Fi AP' || type === 'Wi-Fi Device') {
+      if (type === 'Wi-Fi AP' || type === 'Wi-Fi Device' || type === 'Wi-Fi Client') {
         deviceData = this.extractWiFiDevice(kismetDevice);
       } else if (type === 'BTLE' || type === 'BT') {
         deviceData = this.extractBluetoothDevice(kismetDevice);
       }
 
       if (deviceData) {
-        console.log('[Kismet] Device detected:', deviceData.address, deviceData.name, 'Type:', deviceData.deviceType);
+        console.log('[Kismet] Device:', deviceData.address, '|', deviceData.name, '|', deviceData.deviceType, '| RSSI:', deviceData.rssi);
         this.emit('device', deviceData);
+        return true;
       }
+
+      return false;
     } catch (error) {
-      console.error('[Kismet] Error processing device:', error.message);
+      console.error('[Kismet] Device processing error:', error.message);
+      return false;
     }
   }
 
@@ -160,8 +250,8 @@ class KismetScanner extends EventEmitter {
                  kismetDevice['dot11.device']?.['dot11.device.last_beaconed_ssid'] ||
                  '(Unknown)';
     const type = kismetDevice['kismet.device.base.type'];
-    const signal = kismetDevice['kismet.device.base.signal']?.['kismet.common.signal.last_signal'] || null;
-    const channel = kismetDevice['kismet.device.base.channel'] || null;
+    const signal = kismetDevice['kismet.device.base.signal']?.['kismet.common.signal.last_signal'];
+    const channel = kismetDevice['kismet.device.base.channel'];
     const manuf = kismetDevice['kismet.device.base.manuf'] || 'Unknown';
 
     return {
@@ -169,8 +259,8 @@ class KismetScanner extends EventEmitter {
       name: name,
       manufacturer: manuf,
       deviceType: type === 'Wi-Fi AP' ? 'WiFi AP' : 'WiFi',
-      rssi: signal,
-      channel: channel,
+      rssi: signal || null,
+      channel: channel || null,
       radioId: 'kismet'
     };
   }
@@ -179,7 +269,7 @@ class KismetScanner extends EventEmitter {
     const macAddr = kismetDevice['kismet.device.base.macaddr'];
     const name = kismetDevice['kismet.device.base.name'] || '(Unknown)';
     const type = kismetDevice['kismet.device.base.type'];
-    const signal = kismetDevice['kismet.device.base.signal']?.['kismet.common.signal.last_signal'] || null;
+    const signal = kismetDevice['kismet.device.base.signal']?.['kismet.common.signal.last_signal'];
     const manuf = kismetDevice['kismet.device.base.manuf'] || 'Unknown';
 
     return {
@@ -187,7 +277,7 @@ class KismetScanner extends EventEmitter {
       name: name,
       manufacturer: manuf,
       deviceType: type === 'BTLE' ? 'BLE' : 'Classic',
-      rssi: signal,
+      rssi: signal || null,
       radioId: 'kismet'
     };
   }
@@ -199,6 +289,7 @@ class KismetScanner extends EventEmitter {
 
     this.scanning = false;
     console.log('[Kismet] Stopping device polling');
+    this.log('Stopped Kismet device scanning');
 
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
