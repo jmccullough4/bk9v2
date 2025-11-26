@@ -26,6 +26,7 @@ export default function Dashboard() {
   const [showSMSConfig, setShowSMSConfig] = useState(false);
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [deviceFilter, setDeviceFilter] = useState('all'); // 'all', 'bluetooth', 'wifi'
   const audioRef = useRef(null);
 
   useEffect(() => {
@@ -241,18 +242,6 @@ export default function Dashboard() {
             >
               Targets
             </button>
-            <button
-              onClick={() => setShowRadioManager(!showRadioManager)}
-              className="px-4 py-2 bg-amber-900 hover:bg-amber-800 text-white rounded transition"
-            >
-              Radios
-            </button>
-            <button
-              onClick={() => setShowSMSConfig(!showSMSConfig)}
-              className="px-4 py-2 bg-amber-900 hover:bg-amber-800 text-white rounded transition"
-            >
-              SMS
-            </button>
             {scanning ? (
               <button
                 onClick={handleStopScan}
@@ -269,6 +258,18 @@ export default function Dashboard() {
               </button>
             )}
             <button
+              onClick={handleClearDevices}
+              className="px-4 py-2 bg-orange-700 hover:bg-orange-600 text-white rounded transition"
+            >
+              Clear
+            </button>
+            <button
+              onClick={handleExport}
+              className="px-4 py-2 bg-amber-900 hover:bg-amber-800 text-white rounded transition"
+            >
+              Export
+            </button>
+            <button
               onClick={() => setShowSettings(!showSettings)}
               className="p-2 bg-stone-700 hover:bg-stone-600 text-white rounded transition"
               title="Settings"
@@ -277,18 +278,6 @@ export default function Dashboard() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
-            </button>
-            <button
-              onClick={handleClearDevices}
-              className="px-4 py-2 bg-orange-700 hover:bg-orange-600 text-white rounded transition"
-            >
-              Clear
-            </button>
-            <button
-              onClick={handleExport}
-              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded transition"
-            >
-              Export
             </button>
             <button
               onClick={handleLogout}
@@ -332,9 +321,53 @@ export default function Dashboard() {
 
         {/* Right Panel - Survey Table and Logs */}
         <div className="w-2/5 flex flex-col border-l border-bluek9-cyan/30">
+          {/* Device Type Filter */}
+          <div className="flex items-center justify-between px-4 py-2 bg-bluek9-darker border-b border-bluek9-cyan/30">
+            <div className="flex space-x-2">
+              <button
+                onClick={() => setDeviceFilter('all')}
+                className={`px-3 py-1 rounded transition text-sm ${
+                  deviceFilter === 'all'
+                    ? 'bg-bluek9-cyan text-black font-medium'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                All ({devices.length})
+              </button>
+              <button
+                onClick={() => setDeviceFilter('bluetooth')}
+                className={`px-3 py-1 rounded transition text-sm ${
+                  deviceFilter === 'bluetooth'
+                    ? 'bg-bluek9-cyan text-black font-medium'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                Bluetooth ({devices.filter(d => d.deviceType !== 'WiFi' && d.deviceType !== 'WiFi AP').length})
+              </button>
+              <button
+                onClick={() => setDeviceFilter('wifi')}
+                className={`px-3 py-1 rounded transition text-sm ${
+                  deviceFilter === 'wifi'
+                    ? 'bg-bluek9-cyan text-black font-medium'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                WiFi ({devices.filter(d => d.deviceType === 'WiFi' || d.deviceType === 'WiFi AP').length})
+              </button>
+            </div>
+          </div>
+
           {/* Survey Table */}
           <div className="flex-1 overflow-hidden">
-            <SurveyTable devices={devices} targets={targets} />
+            <SurveyTable
+              devices={devices.filter(d => {
+                if (deviceFilter === 'all') return true;
+                if (deviceFilter === 'bluetooth') return d.deviceType !== 'WiFi' && d.deviceType !== 'WiFi AP';
+                if (deviceFilter === 'wifi') return d.deviceType === 'WiFi' || d.deviceType === 'WiFi AP';
+                return true;
+              })}
+              targets={targets}
+            />
           </div>
 
           {/* Log Panel */}
