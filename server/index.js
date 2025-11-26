@@ -161,9 +161,11 @@ app.prepare().then(() => {
     return handle(req, res);
   });
 
-  server.listen(PORT, (err) => {
+  server.listen(PORT, '0.0.0.0', (err) => {
     if (err) throw err;
-    console.log(`> BlueK9 ready on http://localhost:${PORT}`);
+    console.log(`> BlueK9 ready on http://0.0.0.0:${PORT}`);
+    console.log(`> Access locally: http://localhost:${PORT}`);
+    console.log(`> Access from network: http://<your-ip>:${PORT}`);
     console.log('> Starting Bluetooth scanner...');
     bluetoothScanner.initialize();
     console.log('> Starting GPS service...');
