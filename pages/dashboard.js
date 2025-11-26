@@ -6,6 +6,7 @@ import MapComponent from '../components/MapComponent';
 import SurveyTable from '../components/SurveyTable';
 import TargetManager from '../components/TargetManager';
 import RadioManager from '../components/RadioManager';
+import SettingsManager from '../components/SettingsManager';
 import LogPanel from '../components/LogPanel';
 import AnalyticsPanel from '../components/AnalyticsPanel';
 import SMSConfig from '../components/SMSConfig';
@@ -24,6 +25,7 @@ export default function Dashboard() {
   const [showRadioManager, setShowRadioManager] = useState(false);
   const [showSMSConfig, setShowSMSConfig] = useState(false);
   const [showAnalytics, setShowAnalytics] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const audioRef = useRef(null);
 
   useEffect(() => {
@@ -251,6 +253,12 @@ export default function Dashboard() {
             >
               SMS
             </button>
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded transition"
+            >
+              Settings
+            </button>
             {scanning ? (
               <button
                 onClick={handleStopScan}
@@ -357,6 +365,12 @@ export default function Dashboard() {
         <AnalyticsPanel
           devices={devices}
           onClose={() => setShowAnalytics(false)}
+        />
+      )}
+
+      {showSettings && (
+        <SettingsManager
+          onClose={() => setShowSettings(false)}
         />
       )}
     </div>

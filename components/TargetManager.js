@@ -1,10 +1,39 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 
 export default function TargetManager({ targets, onClose }) {
   const [address, setAddress] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [error, setError] = useState('');
+  const [sortField, setSortField] = useState('addedAt');
+  const [sortDirection, setSortDirection] = useState('desc');
+
+  const sortedTargets = useMemo(() => {
+    return [...targets].sort((a, b) => {
+      let aVal = a[sortField];
+      let bVal = b[sortField];
+
+      if (typeof aVal === 'string') {
+        aVal = aVal.toLowerCase();
+        bVal = bVal.toLowerCase();
+      }
+
+      if (sortDirection === 'asc') {
+        return aVal > bVal ? 1 : -1;
+      } else {
+        return aVal < bVal ? 1 : -1;
+      }
+    });
+  }, [targets, sortField, sortDirection]);
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
 
   const handleAddTarget = async (e) => {
     e.preventDefault();
@@ -129,17 +158,39 @@ export default function TargetManager({ targets, onClose }) {
 
           {/* Target List */}
           <div className="space-y-3">
-            <h3 className="font-semibold text-white">
-              Current Targets ({targets.length})
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-white">
+                Current Targets ({targets.length})
+              </h3>
+              <div className="flex space-x-3 text-xs">
+                <button
+                  onClick={() => handleSort('name')}
+                  className="text-gray-400 hover:text-white transition"
+                >
+                  Name {sortField === 'name' && (sortDirection === 'asc' ? '↑' : '↓')}
+                </button>
+                <button
+                  onClick={() => handleSort('address')}
+                  className="text-gray-400 hover:text-white transition"
+                >
+                  Address {sortField === 'address' && (sortDirection === 'asc' ? '↑' : '↓')}
+                </button>
+                <button
+                  onClick={() => handleSort('addedAt')}
+                  className="text-gray-400 hover:text-white transition"
+                >
+                  Added {sortField === 'addedAt' && (sortDirection === 'asc' ? '↑' : '↓')}
+                </button>
+              </div>
+            </div>
 
-            {targets.length === 0 ? (
+            {sortedTargets.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
                 No targets configured
               </div>
             ) : (
               <div className="space-y-2">
-                {targets.map((target) => (
+                {sortedTargets.map((target) => (
                   <div
                     key={target.address}
                     className="bg-bluek9-darker border border-red-500/30 rounded-lg p-4"

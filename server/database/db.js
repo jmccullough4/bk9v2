@@ -74,6 +74,37 @@ class BlueK9Database {
         FOREIGN KEY(address) REFERENCES devices(address)
       )
     `);
+
+    // Users table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS users (
+        username TEXT PRIMARY KEY,
+        password TEXT,
+        createdAt INTEGER
+      )
+    `);
+
+    // Settings table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      )
+    `);
+
+    // Initialize default settings
+    const defaultSettings = {
+      gpsSource: 'simulated',
+      nmeaIp: '',
+      nmeaPort: '10110'
+    };
+
+    for (const [key, value] of Object.entries(defaultSettings)) {
+      const existing = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+      if (!existing) {
+        this.db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(key, value);
+      }
+    }
   }
 
   // Device operations
@@ -236,6 +267,49 @@ class BlueK9Database {
     }).join('\n');
 
     return headers + rows;
+  }
+
+  // Settings operations
+  getSetting(key) {
+    const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+    return row ? row.value : null;
+  }
+
+  setSetting(key, value) {
+    this.db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value);
+  }
+
+  getAllSettings() {
+    const rows = this.db.prepare('SELECT key, value FROM settings').all();
+    const settings = {};
+    rows.forEach(row => {
+      settings[row.key] = row.value;
+    });
+    return settings;
+  }
+
+  // User operations
+  getUsers() {
+    return this.db.prepare('SELECT username, createdAt FROM users ORDER BY createdAt DESC').all();
+  }
+
+  getUser(username) {
+    return this.db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+  }
+
+  createUser(username, hashedPassword) {
+    const now = Date.now();
+    this.db.prepare(`
+      INSERT INTO users (username, password, createdAt)
+      VALUES (?, ?, ?)
+    `).run(username, hashedPassword, now);
+    this.addLog('info', `User created: ${username}`);
+    return this.db.prepare('SELECT username, createdAt FROM users WHERE username = ?').get(username);
+  }
+
+  deleteUser(username) {
+    this.db.prepare('DELETE FROM users WHERE username = ?').run(username);
+    this.addLog('info', `User deleted: ${username}`);
   }
 }
 
