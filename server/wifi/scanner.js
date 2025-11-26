@@ -10,11 +10,11 @@ class WiFiScanner extends EventEmitter {
   }
 
   // Put interface in monitor mode
-  async enableMonitorMode(interface) {
+  async enableMonitorMode(iface) {
     return new Promise((resolve, reject) => {
       // Check if interface is already in monitor mode
-      if (this.monitorInterfaces.has(interface)) {
-        return resolve({ interface, monInterface: this.monitorInterfaces.get(interface) });
+      if (this.monitorInterfaces.has(iface)) {
+        return resolve({ interface: iface, monInterface: this.monitorInterfaces.get(iface) });
       }
 
       // Kill any processes using the interface
@@ -22,7 +22,7 @@ class WiFiScanner extends EventEmitter {
 
       killProcess.on('close', () => {
         // Enable monitor mode
-        const monProcess = spawn('airmon-ng', ['start', interface]);
+        const monProcess = spawn('airmon-ng', ['start', iface]);
         let output = '';
 
         monProcess.stdout.on('data', (data) => {
@@ -39,14 +39,14 @@ class WiFiScanner extends EventEmitter {
             const match = output.match(/monitor mode (?:vif )?enabled (?:for|on) \[?(\w+)\]?/i) ||
                           output.match(/\(mac80211 monitor mode (?:vif )?enabled on \[?(\w+)\]?\)/i);
 
-            const monInterface = match ? match[1] : `${interface}mon`;
-            this.monitorInterfaces.set(interface, monInterface);
+            const monInterface = match ? match[1] : `${iface}mon`;
+            this.monitorInterfaces.set(iface, monInterface);
 
             this.emit('log', { level: 'info', message: `Monitor mode enabled: ${monInterface}` });
-            resolve({ interface, monInterface });
+            resolve({ interface: iface, monInterface });
           } else {
             // If airmon-ng fails, try manual mode
-            this.manualMonitorMode(interface)
+            this.manualMonitorMode(iface)
               .then(resolve)
               .catch(reject);
           }
@@ -54,7 +54,7 @@ class WiFiScanner extends EventEmitter {
 
         monProcess.on('error', () => {
           // If airmon-ng not available, try manual mode
-          this.manualMonitorMode(interface)
+          this.manualMonitorMode(iface)
             .then(resolve)
             .catch(reject);
         });
@@ -63,56 +63,56 @@ class WiFiScanner extends EventEmitter {
   }
 
   // Manually enable monitor mode using iw/iwconfig
-  async manualMonitorMode(interface) {
+  async manualMonitorMode(iface) {
     return new Promise((resolve, reject) => {
       // Bring interface down
-      const downProcess = spawn('ip', ['link', 'set', interface, 'down']);
+      const downProcess = spawn('ip', ['link', 'set', iface, 'down']);
 
       downProcess.on('close', () => {
         // Set monitor mode
-        const modeProcess = spawn('iw', ['dev', interface, 'set', 'type', 'monitor']);
+        const modeProcess = spawn('iw', ['dev', iface, 'set', 'type', 'monitor']);
 
         modeProcess.on('close', (code) => {
           if (code !== 0) {
             // Try iwconfig as fallback
-            const iwconfigProcess = spawn('iwconfig', [interface, 'mode', 'monitor']);
+            const iwconfigProcess = spawn('iwconfig', [iface, 'mode', 'monitor']);
             iwconfigProcess.on('close', () => {
-              this.bringUpInterface(interface, resolve, reject);
+              this.bringUpInterface(iface, resolve, reject);
             });
           } else {
-            this.bringUpInterface(interface, resolve, reject);
+            this.bringUpInterface(iface, resolve, reject);
           }
         });
 
         modeProcess.on('error', () => {
           // Try iwconfig as fallback
-          const iwconfigProcess = spawn('iwconfig', [interface, 'mode', 'monitor']);
+          const iwconfigProcess = spawn('iwconfig', [iface, 'mode', 'monitor']);
           iwconfigProcess.on('close', () => {
-            this.bringUpInterface(interface, resolve, reject);
+            this.bringUpInterface(iface, resolve, reject);
           });
         });
       });
     });
   }
 
-  bringUpInterface(interface, resolve, reject) {
-    const upProcess = spawn('ip', ['link', 'set', interface, 'up']);
+  bringUpInterface(iface, resolve, reject) {
+    const upProcess = spawn('ip', ['link', 'set', iface, 'up']);
 
     upProcess.on('close', (code) => {
       if (code === 0) {
-        this.monitorInterfaces.set(interface, interface);
-        this.emit('log', { level: 'info', message: `Monitor mode enabled: ${interface}` });
-        resolve({ interface, monInterface: interface });
+        this.monitorInterfaces.set(iface, iface);
+        this.emit('log', { level: 'info', message: `Monitor mode enabled: ${iface}` });
+        resolve({ interface: iface, monInterface: iface });
       } else {
-        reject(new Error(`Failed to bring up interface ${interface}`));
+        reject(new Error(`Failed to bring up interface ${iface}`));
       }
     });
   }
 
   // Disable monitor mode
-  async disableMonitorMode(interface) {
+  async disableMonitorMode(iface) {
     return new Promise((resolve) => {
-      const monInterface = this.monitorInterfaces.get(interface);
+      const monInterface = this.monitorInterfaces.get(iface);
       if (!monInterface) {
         return resolve();
       }
@@ -121,33 +121,33 @@ class WiFiScanner extends EventEmitter {
       const stopProcess = spawn('airmon-ng', ['stop', monInterface]);
 
       stopProcess.on('close', () => {
-        this.monitorInterfaces.delete(interface);
+        this.monitorInterfaces.delete(iface);
         resolve();
       });
 
       stopProcess.on('error', () => {
         // Manual cleanup
-        this.manualDisableMonitor(interface, monInterface, resolve);
+        this.manualDisableMonitor(iface, monInterface, resolve);
       });
     });
   }
 
-  async manualDisableMonitor(interface, monInterface, resolve) {
+  async manualDisableMonitor(iface, monInterface, resolve) {
     const downProcess = spawn('ip', ['link', 'set', monInterface, 'down']);
 
     downProcess.on('close', () => {
       const modeProcess = spawn('iw', ['dev', monInterface, 'set', 'type', 'managed']);
 
       modeProcess.on('close', () => {
-        const upProcess = spawn('ip', ['link', 'set', interface, 'up']);
+        const upProcess = spawn('ip', ['link', 'set', iface, 'up']);
         upProcess.on('close', () => {
-          this.monitorInterfaces.delete(interface);
+          this.monitorInterfaces.delete(iface);
           resolve();
         });
       });
 
       modeProcess.on('error', () => {
-        this.monitorInterfaces.delete(interface);
+        this.monitorInterfaces.delete(iface);
         resolve();
       });
     });
@@ -256,9 +256,9 @@ class WiFiScanner extends EventEmitter {
   }
 
   // Start tshark scanning as fallback
-  startTsharkScan(interface) {
+  startTsharkScan(iface) {
     this.scanProcess = spawn('tshark', [
-      '-i', interface,
+      '-i', iface,
       '-I',
       '-Y', 'wlan.fc.type == 0',
       '-T', 'fields',
@@ -394,8 +394,8 @@ class WiFiScanner extends EventEmitter {
     }
 
     // Disable monitor mode on all interfaces
-    for (const [interface] of this.monitorInterfaces) {
-      await this.disableMonitorMode(interface);
+    for (const [iface] of this.monitorInterfaces) {
+      await this.disableMonitorMode(iface);
     }
 
     this.emit('log', { level: 'info', message: 'WiFi scanning stopped' });
