@@ -1,10 +1,8 @@
 const { SerialPort } = require('serialport');
-const { ReadlineParser } = require('@serialport/parser-readline');
 
 class SMSService {
   constructor(db) {
     this.db = db;
-    this.port = null;
     this.phoneNumbers = [];
     this.alertedTargets = new Map(); // Track which targets we've alerted about
     this.modemPath = null;
@@ -14,11 +12,11 @@ class SMSService {
     console.log('[SMS] Initializing SMS service');
 
     try {
-      // Try to find SIMCOM7600 modem
+      // Just detect the modem path, don't open it
       await this.detectModem();
 
       if (this.modemPath) {
-        await this.initializeModem();
+        console.log(`[SMS] SIMCOM7600 modem detected at ${this.modemPath}`);
       } else {
         console.log('[SMS] SIMCOM7600 modem not found, SMS alerts disabled');
         console.log('[SMS] SMS messages will be logged only');
@@ -35,37 +33,15 @@ class SMSService {
 
   async detectModem() {
     try {
-      const { SerialPort } = require('serialport');
-      const ports = await SerialPort.list();
-
-      // Look for SIMCOM7600 or similar modems
-      for (const port of ports) {
-        if (
-          port.manufacturer?.includes('SIMCOM') ||
-          port.manufacturer?.includes('SimTech') ||
-          port.vendorId === '1e0e' // SIMCOM vendor ID
-        ) {
-          this.modemPath = port.path;
-          console.log(`[SMS] Found SIMCOM modem at ${this.modemPath}`);
-          return;
-        }
-      }
-
-      // Try common modem paths (try /dev/ttyUSB2 first as it's most common for SIMCOM7600)
+      // Try common modem paths (prefer /dev/ttyUSB2 for SIMCOM7600)
       const commonPaths = ['/dev/ttyUSB2', '/dev/ttyUSB0', '/dev/ttyUSB1', '/dev/ttyUSB3', '/dev/ttyACM0'];
+
       for (const path of commonPaths) {
         try {
-          const testPort = new SerialPort({ path, baudRate: 115200 });
-          await new Promise((resolve, reject) => {
-            testPort.on('open', () => {
-              this.modemPath = path;
-              testPort.close();
-              resolve();
-            });
-            testPort.on('error', reject);
-          });
-          if (this.modemPath) {
-            console.log(`[SMS] Found modem at ${this.modemPath}`);
+          const fs = require('fs');
+          if (fs.existsSync(path)) {
+            this.modemPath = path;
+            console.log(`[SMS] Found potential modem at ${this.modemPath}`);
             return;
           }
         } catch (error) {
@@ -75,65 +51,6 @@ class SMSService {
     } catch (error) {
       console.log('[SMS] Error detecting modem:', error.message);
     }
-  }
-
-  async initializeModem() {
-    try {
-      this.port = new SerialPort({
-        path: this.modemPath,
-        baudRate: 115200
-      });
-
-      const parser = this.port.pipe(new ReadlineParser({ delimiter: '\r\n' }));
-
-      parser.on('data', (data) => {
-        console.log('[SMS] Modem response:', data);
-      });
-
-      this.port.on('error', (err) => {
-        console.log('[SMS] Modem error:', err.message);
-      });
-
-      // Wait for port to open
-      await new Promise((resolve, reject) => {
-        this.port.on('open', resolve);
-        this.port.on('error', reject);
-      });
-
-      // Initialize modem with AT commands
-      await this.sendATCommand('AT');
-      await this.sendATCommand('AT+CMGF=1'); // Text mode
-      await this.sendATCommand('AT+CNMI=1,2,0,0,0'); // New message indication
-
-      console.log('[SMS] Modem initialized successfully');
-    } catch (error) {
-      console.log('[SMS] Error initializing modem:', error.message);
-      this.port = null;
-    }
-  }
-
-  sendATCommand(command, wait = 500) {
-    return new Promise((resolve, reject) => {
-      if (!this.port || !this.port.isOpen) {
-        return reject(new Error('Modem not connected'));
-      }
-
-      console.log(`[SMS] >> ${command}`);
-      this.port.write(command + '\r', (err) => {
-        if (err) {
-          return reject(err);
-        }
-
-        // Wait for response
-        setTimeout(() => {
-          // Read any response
-          if (this.port.readable) {
-            this.port.read(); // Consume the response
-          }
-          resolve();
-        }, wait);
-      });
-    });
   }
 
   setNumbers(numbers) {
@@ -208,55 +125,92 @@ RSSI: ${device.rssi} dBm`;
   async sendSMS(phoneNumber, message) {
     // Add +1 if not present (US numbers)
     let fullNumber = phoneNumber;
-    if (!phoneNumber.startsWith('+')) {
-      fullNumber = '+1' + phoneNumber.replace(/\D/g, '');
+    if (phoneNumber.length === 10) {
+      fullNumber = '1' + phoneNumber;
     }
 
-    console.log(`[SMS] Sending SMS to ${fullNumber}`);
-
-    if (!this.port || !this.port.isOpen) {
-      console.log(`[SMS] Modem not available - Message logged only`);
+    // If no modem path, just log
+    if (!this.modemPath) {
+      console.log('[SMS] SMS (modem not available):');
       console.log(`[SMS] To: ${fullNumber}`);
       console.log(`[SMS] Message: ${message}`);
       return;
     }
 
+    let port = null;
+
     try {
-      // Wake the modem
-      await this.sendATCommand('AT');
+      // Open port for this message only
+      port = new SerialPort({
+        path: this.modemPath,
+        baudRate: 115200,
+        autoOpen: false
+      });
 
-      // Set SMS text mode
-      await this.sendATCommand('AT+CMGF=1');
+      // Open the port
+      await new Promise((resolve, reject) => {
+        port.open((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
 
-      // Start message
-      await this.sendATCommand(`AT+CMGS="${fullNumber}"`, 1000);
+      console.log('[SMS] Port opened for message');
+
+      // Send AT command sequence (matching your Python script)
+      await this.sendATCommand(port, 'AT', 500);
+      await this.sendATCommand(port, 'AT+CMGF=1', 500);
+      await this.sendATCommand(port, `AT+CMGS="${fullNumber}"`, 1000);
 
       // Write message text
-      console.log('[SMS] >> (message body)');
       await new Promise((resolve, reject) => {
-        this.port.write(message, (err) => {
+        port.write(message, (err) => {
           if (err) return reject(err);
           setTimeout(resolve, 200);
         });
       });
 
-      // Send Ctrl+Z to finalize
-      console.log('[SMS] >> <Ctrl+Z>');
+      // Send Ctrl+Z to send the message
       await new Promise((resolve, reject) => {
-        this.port.write(Buffer.from([26]), (err) => {
+        port.write(Buffer.from([26]), (err) => {
           if (err) return reject(err);
-          setTimeout(resolve, 3000); // Wait for modem to process
+          setTimeout(resolve, 3000); // Wait for send confirmation
         });
       });
 
-      console.log(`[SMS] Message sent successfully to ${fullNumber}`);
+      console.log('[SMS] Message sent successfully');
+
     } catch (error) {
-      console.log(`[SMS] Error sending message to ${fullNumber}:`, error.message);
+      console.error('[SMS] Error sending SMS:', error.message);
+      throw error;
+    } finally {
+      // Always close the port
+      if (port && port.isOpen) {
+        await new Promise((resolve) => {
+          port.close((err) => {
+            if (err) console.error('[SMS] Error closing port:', err.message);
+            console.log('[SMS] Port closed');
+            resolve();
+          });
+        });
+      }
     }
   }
 
-  async testSMS(phoneNumber, message) {
-    await this.sendSMS(phoneNumber, message);
+  sendATCommand(port, command, wait = 500) {
+    return new Promise((resolve, reject) => {
+      if (!port || !port.isOpen) {
+        return reject(new Error('Port not open'));
+      }
+
+      console.log(`[SMS] >> ${command}`);
+      port.write(command + '\r', (err) => {
+        if (err) {
+          return reject(err);
+        }
+        setTimeout(resolve, wait);
+      });
+    });
   }
 }
 
