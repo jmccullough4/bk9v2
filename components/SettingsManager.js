@@ -92,6 +92,13 @@ export default function SettingsManager({ onClose }) {
       });
 
       if (response.ok) {
+        // Trigger GPS mode switch in real-time
+        await fetch('/api/settings/gps/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gpsSource }),
+        });
+
         setSuccess('Settings saved');
         setTimeout(() => setSuccess(''), 3000);
       } else {

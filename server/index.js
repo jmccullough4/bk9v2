@@ -28,7 +28,7 @@ app.prepare().then(() => {
   const db = new Database();
   const bluetoothScanner = new BluetoothScanner(db, io);
   const wifiScanner = new WiFiScanner();
-  const gpsService = new GPSService(io);
+  const gpsService = new GPSService(io, db);
   const smsService = new SMSService(db);
 
   expressApp.use(express.json());
@@ -85,17 +85,21 @@ app.prepare().then(() => {
   });
 
   expressApp.post('/api/scan/start', async (req, res) => {
+    console.log('[SERVER-DEBUG] Scan start requested');
     bluetoothScanner.startScanning();
 
     // Get WiFi radios from database
     const radios = db.getRadios ? db.getRadios() : [];
     const wifiRadios = radios.filter(r => r.type === 'wifi').map(r => r.device);
 
+    console.log('[SERVER-DEBUG] WiFi radios configured:', wifiRadios);
+
     // Start WiFi scanning if WiFi radios are configured
     if (wifiRadios.length > 0) {
       await wifiScanner.startScan(wifiRadios);
     } else {
       // Start with auto-detection or virtual scan
+      console.log('[SERVER-DEBUG] Starting WiFi scan with auto-detection');
       await wifiScanner.startScan();
     }
 
@@ -138,6 +142,23 @@ app.prepare().then(() => {
     res.json(numbers);
   });
 
+  expressApp.post('/api/settings/gps/update', async (req, res) => {
+    try {
+      const { gpsSource } = req.body;
+      console.log('[SERVER-DEBUG] GPS settings update requested:', gpsSource);
+
+      // Update GPS mode in real-time
+      if (gpsSource) {
+        await gpsService.setGPSSource(gpsSource);
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error updating GPS mode:', error);
+      res.status(500).json({ error: 'Failed to update GPS mode' });
+    }
+  });
+
   // Socket.io connection
   io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
@@ -154,7 +175,9 @@ app.prepare().then(() => {
 
   // Handle device detection events
   bluetoothScanner.on('deviceDetected', (device) => {
+    console.log('[SERVER-DEBUG] Bluetooth device detected event received:', device.address);
     io.emit('deviceDetected', device);
+    console.log('[SERVER-DEBUG] deviceDetected emitted to socket.io clients');
 
     // Check if device is a target
     const targets = db.getTargets();
@@ -163,6 +186,7 @@ app.prepare().then(() => {
     );
 
     if (isTarget) {
+      console.log('[SERVER-DEBUG] Device is a TARGET:', device.address);
       io.emit('targetDetected', device);
       smsService.sendTargetAlert(device, gpsService.getCurrentLocation());
     }
@@ -170,7 +194,9 @@ app.prepare().then(() => {
 
   // Handle WiFi device detection events
   wifiScanner.on('device', (device) => {
+    console.log('[SERVER-DEBUG] WiFi device detected event received:', device.address);
     io.emit('deviceDetected', device);
+    console.log('[SERVER-DEBUG] WiFi deviceDetected emitted to socket.io clients');
 
     // Check if device is a target
     const targets = db.getTargets();
@@ -179,6 +205,7 @@ app.prepare().then(() => {
     );
 
     if (isTarget) {
+      console.log('[SERVER-DEBUG] WiFi device is a TARGET:', device.address);
       io.emit('targetDetected', device);
       smsService.sendTargetAlert(device, gpsService.getCurrentLocation());
     }
