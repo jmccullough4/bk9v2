@@ -4,17 +4,20 @@ export default function handler(req, res) {
 
   if (req.method === 'POST') {
     try {
-      const { gpsSource, nmeaIp, nmeaPort } = req.body;
+      const { gpsSource, systemName, nmeaIp, nmeaPort } = req.body;
 
+      if (systemName) {
+        db.setSetting('systemName', systemName);
+      }
       db.setSetting('gpsSource', gpsSource);
       db.setSetting('nmeaIp', nmeaIp || '');
       db.setSetting('nmeaPort', nmeaPort || '10110');
 
-      db.addLog('info', `GPS settings updated: ${gpsSource}`);
+      db.addLog('info', `Settings updated: ${systemName || 'Unknown'} - ${gpsSource}`);
       res.status(200).json({ success: true });
     } catch (error) {
-      console.error('Error saving GPS settings:', error);
-      res.status(500).json({ error: 'Failed to save GPS settings' });
+      console.error('Error saving settings:', error);
+      res.status(500).json({ error: 'Failed to save settings' });
     }
   } else {
     res.status(405).json({ error: 'Method not allowed' });

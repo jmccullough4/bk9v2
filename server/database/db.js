@@ -106,7 +106,8 @@ class BlueK9Database {
     const defaultSettings = {
       gpsSource: 'simulated',
       nmeaIp: '',
-      nmeaPort: '10110'
+      nmeaPort: '10110',
+      systemName: 'BlueK9-01'
     };
 
     for (const [key, value] of Object.entries(defaultSettings)) {

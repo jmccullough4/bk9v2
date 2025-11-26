@@ -9,13 +9,13 @@ module.exports = {
     extend: {
       colors: {
         'bluek9': {
-          'dark': '#0a0e27',
-          'darker': '#060816',
-          'blue': '#1e40af',
-          'cyan': '#06b6d4',
-          'red': '#ef4444',
-          'green': '#10b981',
-          'yellow': '#f59e0b',
+          'dark': '#1a1f16',      // Dark olive
+          'darker': '#0f120d',    // Darker olive/brown
+          'blue': '#2d4a2b',      // Forest green
+          'cyan': '#4a7c59',      // Military green
+          'red': '#8b4513',       // Saddle brown
+          'green': '#556b2f',     // Dark olive green
+          'yellow': '#9b7653',    // Tan/brown
         }
       },
       animation: {

@@ -162,27 +162,46 @@ class SMSService {
       t.address.toLowerCase() === device.address.toLowerCase()
     );
 
-    const firstSeen = new Date(device.firstSeen).toLocaleString();
-    const lastSeen = new Date(device.lastSeen).toLocaleString();
-    const locationStr = `${location.lat.toFixed(6)}, ${location.lon.toFixed(6)}`;
+    // Get system name from settings
+    const systemName = this.db.getSetting('systemName') || 'BlueK9-01';
 
-    const message = `BlueK9 ALERT: Target detected!
-Device: ${target?.name || device.name || 'Unknown'}
-Address: ${device.address}
+    // Current time of detection
+    const timeCollected = new Date().toLocaleString('en-US', {
+      month: '2-digit',
+      day: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+
+    const locationStr = location
+      ? `${location.lat.toFixed(6)}, ${location.lon.toFixed(6)}`
+      : 'Unknown';
+
+    const message = `BlueK9 TARGET DETECTED
+BD Addr: ${device.address}
+Time: ${timeCollected}
+System: ${systemName}
 Location: ${locationStr}
-First Seen: ${firstSeen}
-Last Seen: ${lastSeen}
+Device: ${target?.name || device.name || 'Unknown'}
 RSSI: ${device.rssi} dBm`;
 
     console.log('[SMS] TARGET DETECTED - Sending alerts');
     console.log(message);
 
     // Log the alert
-    this.db.addLog('alert', `Target detected: ${device.address}`, device);
+    this.db.addLog('alert', `Target detected: ${device.address} on ${systemName}`, device);
 
     // Send SMS to all configured numbers
     for (const number of this.phoneNumbers) {
-      await this.sendSMS(number, message);
+      try {
+        await this.sendSMS(number, message);
+        console.log(`[SMS] Alert sent to ${number}`);
+      } catch (err) {
+        console.error(`[SMS] Failed to send alert to ${number}:`, err);
+      }
     }
   }
 

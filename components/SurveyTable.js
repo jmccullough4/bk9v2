@@ -162,7 +162,9 @@ export default function SurveyTable({ devices, targets }) {
                       : '-'}
                   </td>
                   <td className={`px-3 py-2 text-xs ${targetDevice ? 'text-red-300' : 'text-gray-400'}`}>
-                    {formatDistanceToNow(device.lastSeen, { addSuffix: true })}
+                    {device.lastSeen && !isNaN(device.lastSeen)
+                      ? formatDistanceToNow(device.lastSeen, { addSuffix: true })
+                      : '-'}
                   </td>
                 </tr>
               );

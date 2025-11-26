@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 export default function SettingsManager({ onClose }) {
   const [activeTab, setActiveTab] = useState('gps');
   const [gpsSource, setGpsSource] = useState('simulated');
+  const [systemName, setSystemName] = useState('BlueK9-01');
   const [nmeaIp, setNmeaIp] = useState('');
   const [nmeaPort, setNmeaPort] = useState('10110');
   const [radios, setRadios] = useState([]);
@@ -26,6 +27,7 @@ export default function SettingsManager({ onClose }) {
       if (response.ok) {
         const data = await response.json();
         setGpsSource(data.gpsSource || 'simulated');
+        setSystemName(data.systemName || 'BlueK9-01');
         setNmeaIp(data.nmeaIp || '');
         setNmeaPort(data.nmeaPort || '10110');
       }
@@ -74,18 +76,23 @@ export default function SettingsManager({ onClose }) {
     setError('');
     setSuccess('');
 
+    if (!systemName || systemName.trim().length < 3) {
+      setError('System Name must be at least 3 characters');
+      return;
+    }
+
     try {
       const response = await fetch('/api/settings/gps', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gpsSource, nmeaIp, nmeaPort }),
+        body: JSON.stringify({ gpsSource, systemName, nmeaIp, nmeaPort }),
       });
 
       if (response.ok) {
-        setSuccess('GPS settings saved');
+        setSuccess('Settings saved');
         setTimeout(() => setSuccess(''), 3000);
       } else {
-        setError('Failed to save GPS settings');
+        setError('Failed to save settings');
       }
     } catch (err) {
       setError('Connection error');
@@ -241,7 +248,24 @@ export default function SettingsManager({ onClose }) {
           {/* GPS Tab */}
           {activeTab === 'gps' && (
             <div className="space-y-4">
-              <h3 className="font-semibold text-white">GPS Configuration</h3>
+              <h3 className="font-semibold text-white">System & GPS Configuration</h3>
+
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">
+                  System Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={systemName}
+                  onChange={(e) => setSystemName(e.target.value)}
+                  placeholder="BlueK9-01"
+                  className="w-full px-3 py-2 bg-bluek9-darker border border-gray-600 rounded-lg focus:outline-none focus:border-bluek9-cyan"
+                  required
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Identifies this system in SMS alerts and cloud sync
+                </p>
+              </div>
 
               <div>
                 <label className="block text-sm text-gray-400 mb-2">
