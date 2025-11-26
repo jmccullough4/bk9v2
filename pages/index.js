@@ -85,15 +85,11 @@ export default function Login() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-bluek9-cyan hover:bg-cyan-500 text-white font-bold py-3 px-4 rounded-lg transition duration-200 disabled:opacity-50"
+            className="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 px-4 rounded transition duration-200 disabled:opacity-50"
           >
-            {loading ? 'Logging in...' : 'Login'}
+            {loading ? 'Authenticating...' : 'LOGIN'}
           </button>
         </form>
-
-        <div className="mt-6 text-center text-sm text-gray-500">
-          <p>Default credentials: bluek9 / warhammer</p>
-        </div>
       </div>
     </div>
   );

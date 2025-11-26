@@ -51,8 +51,8 @@ class SMSService {
         }
       }
 
-      // Try common modem paths
-      const commonPaths = ['/dev/ttyUSB2', '/dev/ttyUSB3', '/dev/ttyACM0'];
+      // Try common modem paths (try /dev/ttyUSB2 first as it's most common for SIMCOM7600)
+      const commonPaths = ['/dev/ttyUSB2', '/dev/ttyUSB0', '/dev/ttyUSB1', '/dev/ttyUSB3', '/dev/ttyACM0'];
       for (const path of commonPaths) {
         try {
           const testPort = new SerialPort({ path, baudRate: 115200 });
@@ -112,19 +112,26 @@ class SMSService {
     }
   }
 
-  sendATCommand(command) {
+  sendATCommand(command, wait = 500) {
     return new Promise((resolve, reject) => {
       if (!this.port || !this.port.isOpen) {
         return reject(new Error('Modem not connected'));
       }
 
-      this.port.write(command + '\r\n', (err) => {
+      console.log(`[SMS] >> ${command}`);
+      this.port.write(command + '\r', (err) => {
         if (err) {
           return reject(err);
         }
 
-        // Wait for OK response
-        setTimeout(() => resolve(), 500);
+        // Wait for response
+        setTimeout(() => {
+          // Read any response
+          if (this.port.readable) {
+            this.port.read(); // Consume the response
+          }
+          resolve();
+        }, wait);
       });
     });
   }
@@ -196,13 +203,33 @@ RSSI: ${device.rssi} dBm`;
     }
 
     try {
-      await this.sendATCommand(`AT+CMGS="${fullNumber}"`);
+      // Wake the modem
+      await this.sendATCommand('AT');
+
+      // Set SMS text mode
+      await this.sendATCommand('AT+CMGF=1');
+
+      // Start message
+      await this.sendATCommand(`AT+CMGS="${fullNumber}"`, 1000);
+
+      // Write message text
+      console.log('[SMS] >> (message body)');
       await new Promise((resolve, reject) => {
-        this.port.write(message + String.fromCharCode(26), (err) => {
+        this.port.write(message, (err) => {
           if (err) return reject(err);
-          setTimeout(resolve, 2000); // Wait for message to send
+          setTimeout(resolve, 200);
         });
       });
+
+      // Send Ctrl+Z to finalize
+      console.log('[SMS] >> <Ctrl+Z>');
+      await new Promise((resolve, reject) => {
+        this.port.write(Buffer.from([26]), (err) => {
+          if (err) return reject(err);
+          setTimeout(resolve, 3000); // Wait for modem to process
+        });
+      });
+
       console.log(`[SMS] Message sent successfully to ${fullNumber}`);
     } catch (error) {
       console.log(`[SMS] Error sending message to ${fullNumber}:`, error.message);

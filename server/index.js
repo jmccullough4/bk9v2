@@ -3,6 +3,7 @@ const next = require('next');
 const http = require('http');
 const { Server } = require('socket.io');
 const BluetoothScanner = require('./bluetooth/scanner');
+const WiFiScanner = require('./wifi/scanner');
 const GPSService = require('./gps/service');
 const SMSService = require('./sms/service');
 const Database = require('./database/db');
@@ -26,6 +27,7 @@ app.prepare().then(() => {
   // Initialize services
   const db = new Database();
   const bluetoothScanner = new BluetoothScanner(db, io);
+  const wifiScanner = new WiFiScanner();
   const gpsService = new GPSService(io);
   const smsService = new SMSService(db);
 
@@ -67,28 +69,43 @@ app.prepare().then(() => {
   });
 
   expressApp.get('/api/radios', (req, res) => {
-    const radios = bluetoothScanner.getRadios();
-    res.json(radios);
+    const radios = db.getRadios();
+    res.json({ radios });
   });
 
   expressApp.post('/api/radios', (req, res) => {
-    const radio = bluetoothScanner.addRadio(req.body);
-    res.json(radio);
+    const { type, device } = req.body;
+    const radio = db.addRadio(type, device);
+    res.json({ radio });
   });
 
   expressApp.delete('/api/radios/:id', (req, res) => {
-    bluetoothScanner.removeRadio(req.params.id);
+    db.removeRadio(parseInt(req.params.id));
     res.json({ success: true });
   });
 
-  expressApp.post('/api/scan/start', (req, res) => {
+  expressApp.post('/api/scan/start', async (req, res) => {
     bluetoothScanner.startScanning();
-    res.json({ success: true, message: 'Scanning started' });
+
+    // Get WiFi radios from database
+    const radios = db.getRadios ? db.getRadios() : [];
+    const wifiRadios = radios.filter(r => r.type === 'wifi').map(r => r.device);
+
+    // Start WiFi scanning if WiFi radios are configured
+    if (wifiRadios.length > 0) {
+      await wifiScanner.startScan(wifiRadios);
+    } else {
+      // Start with auto-detection or virtual scan
+      await wifiScanner.startScan();
+    }
+
+    res.json({ success: true, message: 'Bluetooth and WiFi scanning started' });
   });
 
-  expressApp.post('/api/scan/stop', (req, res) => {
+  expressApp.post('/api/scan/stop', async (req, res) => {
     bluetoothScanner.stopScanning();
-    res.json({ success: true, message: 'Scanning stopped' });
+    await wifiScanner.stopScan();
+    res.json({ success: true, message: 'Bluetooth and WiFi scanning stopped' });
   });
 
   expressApp.post('/api/devices/clear', (req, res) => {
@@ -149,6 +166,27 @@ app.prepare().then(() => {
       io.emit('targetDetected', device);
       smsService.sendTargetAlert(device, gpsService.getCurrentLocation());
     }
+  });
+
+  // Handle WiFi device detection events
+  wifiScanner.on('device', (device) => {
+    io.emit('deviceDetected', device);
+
+    // Check if device is a target
+    const targets = db.getTargets();
+    const isTarget = targets.some(t =>
+      t.address.toLowerCase() === device.address.toLowerCase()
+    );
+
+    if (isTarget) {
+      io.emit('targetDetected', device);
+      smsService.sendTargetAlert(device, gpsService.getCurrentLocation());
+    }
+  });
+
+  // Handle WiFi scanner logs
+  wifiScanner.on('log', (log) => {
+    io.emit('log', log);
   });
 
   // Handle GPS updates

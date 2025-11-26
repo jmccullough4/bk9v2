@@ -6,6 +6,7 @@ import MapComponent from '../components/MapComponent';
 import SurveyTable from '../components/SurveyTable';
 import TargetManager from '../components/TargetManager';
 import RadioManager from '../components/RadioManager';
+import SettingsManager from '../components/SettingsManager';
 import LogPanel from '../components/LogPanel';
 import AnalyticsPanel from '../components/AnalyticsPanel';
 import SMSConfig from '../components/SMSConfig';
@@ -24,6 +25,7 @@ export default function Dashboard() {
   const [showRadioManager, setShowRadioManager] = useState(false);
   const [showSMSConfig, setShowSMSConfig] = useState(false);
   const [showAnalytics, setShowAnalytics] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const audioRef = useRef(null);
 
   useEffect(() => {
@@ -229,60 +231,66 @@ export default function Dashboard() {
           <div className="flex items-center space-x-3">
             <button
               onClick={() => setShowAnalytics(!showAnalytics)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition"
+              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded transition"
             >
-              📊 Analytics
+              Analytics
             </button>
             <button
               onClick={() => setShowTargetManager(!showTargetManager)}
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition"
+              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded transition"
             >
-              🎯 Targets
+              Targets
             </button>
             <button
               onClick={() => setShowRadioManager(!showRadioManager)}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition"
+              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded transition"
             >
-              📡 Radios
+              Radios
             </button>
             <button
               onClick={() => setShowSMSConfig(!showSMSConfig)}
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition"
+              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded transition"
             >
-              📱 SMS
+              SMS
+            </button>
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded transition"
+            >
+              Settings
             </button>
             {scanning ? (
               <button
                 onClick={handleStopScan}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition"
+                className="px-4 py-2 bg-red-700 hover:bg-red-600 text-white rounded transition font-medium"
               >
-                ⏸ Stop Scan
+                STOP
               </button>
             ) : (
               <button
                 onClick={handleStartScan}
-                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition"
+                className="px-4 py-2 bg-green-700 hover:bg-green-600 text-white rounded transition font-medium"
               >
-                ▶ Start Scan
+                START
               </button>
             )}
             <button
               onClick={handleClearDevices}
-              className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition"
+              className="px-4 py-2 bg-orange-700 hover:bg-orange-600 text-white rounded transition"
             >
-              🗑 Clear
+              Clear
             </button>
             <button
               onClick={handleExport}
-              className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg transition"
+              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded transition"
             >
-              💾 Export
+              Export
             </button>
             <button
               onClick={handleLogout}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition"
+              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded transition border border-gray-600"
             >
-              🚪 Logout
+              Logout
             </button>
           </div>
         </div>
@@ -357,6 +365,12 @@ export default function Dashboard() {
         <AnalyticsPanel
           devices={devices}
           onClose={() => setShowAnalytics(false)}
+        />
+      )}
+
+      {showSettings && (
+        <SettingsManager
+          onClose={() => setShowSettings(false)}
         />
       )}
     </div>
