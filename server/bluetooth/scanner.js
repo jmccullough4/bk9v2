@@ -91,15 +91,21 @@ class BluetoothScanner extends EventEmitter {
 
     this.scanning = true;
     this.log('Starting Bluetooth scan (Classic + LE)');
+    console.log('[BT-DEBUG] startScanning() called');
+    console.log('[BT-DEBUG] Total radios:', this.radios.length);
 
     const enabledRadios = this.radios.filter(r => r.enabled);
+    console.log('[BT-DEBUG] Enabled radios:', enabledRadios.length);
+    console.log('[BT-DEBUG] Radios:', JSON.stringify(enabledRadios, null, 2));
 
     for (const radio of enabledRadios) {
       if (radio.virtual) {
         // Start virtual scanning for development
+        console.log('[BT-DEBUG] Starting virtual scan for', radio.id);
         this.startVirtualScan(radio);
       } else {
         // Start real Bluetooth scanning
+        console.log('[BT-DEBUG] Starting real scan for', radio.id);
         await this.startRealScan(radio);
       }
     }
@@ -202,6 +208,7 @@ class BluetoothScanner extends EventEmitter {
   startVirtualScan(radio) {
     // Virtual scanning for development/testing
     this.log('Starting virtual scan (development mode)');
+    console.log('[BT-DEBUG] Virtual scan started for radio:', radio.id);
 
     const virtualDevices = [
       { address: '00:11:22:33:44:55', name: 'Virtual Device 1', type: 'LE' },
@@ -212,17 +219,21 @@ class BluetoothScanner extends EventEmitter {
     let index = 0;
     const virtualInterval = setInterval(() => {
       if (!this.scanning) {
+        console.log('[BT-DEBUG] Virtual scan stopped - scanning is false');
         clearInterval(virtualInterval);
         return;
       }
 
       const device = virtualDevices[index % virtualDevices.length];
-      this.handleDeviceDetection({
+      const deviceData = {
         ...device,
         deviceType: device.type,
         radioId: radio.id,
         rssi: -50 - Math.floor(Math.random() * 50) // Random RSSI between -50 and -100
-      });
+      };
+
+      console.log('[BT-DEBUG] Virtual device detected:', deviceData.address, deviceData.name, 'RSSI:', deviceData.rssi);
+      this.handleDeviceDetection(deviceData);
 
       index++;
     }, 3000); // Detect a device every 3 seconds
@@ -233,8 +244,11 @@ class BluetoothScanner extends EventEmitter {
   }
 
   async handleDeviceDetection(deviceData) {
+    console.log('[BT-DEBUG] handleDeviceDetection called for:', deviceData.address);
+
     // Get current GPS location
     const gpsLocation = await this.getCurrentGPSLocation();
+    console.log('[BT-DEBUG] GPS location:', gpsLocation);
 
     // Get manufacturer from OUI lookup
     const manufacturer = this.lookupManufacturer(deviceData.address);
@@ -260,11 +274,15 @@ class BluetoothScanner extends EventEmitter {
       radioId: deviceData.radioId
     };
 
+    console.log('[BT-DEBUG] Device object prepared:', JSON.stringify(device, null, 2));
+
     // Save to database
     const savedDevice = this.db.upsertDevice(device);
+    console.log('[BT-DEBUG] Device saved to database:', savedDevice ? 'SUCCESS' : 'FAILED');
 
     // Emit event
     this.emit('deviceDetected', savedDevice);
+    console.log('[BT-DEBUG] deviceDetected event emitted for:', savedDevice.address);
   }
 
   lookupManufacturer(address) {

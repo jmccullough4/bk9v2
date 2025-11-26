@@ -12,13 +12,25 @@ class SMSService {
     console.log('[SMS] Initializing SMS service');
 
     try {
-      // Just detect the modem path, don't open it
-      await this.detectModem();
+      // IMPORTANT: Don't auto-detect modem to avoid interfering with internet connection
+      // The SIMCOM7600 has multiple USB ports - some are for PPP/internet, some for AT commands
+      // Only use the modem if explicitly configured in settings
+      const configuredModemPath = this.db.getSetting('smsModemPath');
 
-      if (this.modemPath) {
-        console.log(`[SMS] SIMCOM7600 modem detected at ${this.modemPath}`);
+      if (configuredModemPath) {
+        const fs = require('fs');
+        if (fs.existsSync(configuredModemPath)) {
+          this.modemPath = configuredModemPath;
+          console.log(`[SMS] SMS modem configured at ${this.modemPath}`);
+        } else {
+          console.log(`[SMS] Configured modem path ${configuredModemPath} not found`);
+          console.log('[SMS] SMS messages will be logged only');
+        }
       } else {
-        console.log('[SMS] SIMCOM7600 modem not found, SMS alerts disabled');
+        console.log('[SMS] SMS modem not configured');
+        console.log('[SMS] To enable SMS alerts, configure the modem port in Settings > SMS');
+        console.log('[SMS] IMPORTANT: Use a port that does NOT interfere with your internet connection');
+        console.log('[SMS] For SIMCOM7600: typically /dev/ttyUSB2 or /dev/ttyUSB3 (NOT the PPP port)');
         console.log('[SMS] SMS messages will be logged only');
       }
 
@@ -28,28 +40,6 @@ class SMSService {
     } catch (error) {
       console.log('[SMS] Error initializing SMS service:', error.message);
       console.log('[SMS] SMS messages will be logged only');
-    }
-  }
-
-  async detectModem() {
-    try {
-      // Try common modem paths (prefer /dev/ttyUSB2 for SIMCOM7600)
-      const commonPaths = ['/dev/ttyUSB2', '/dev/ttyUSB0', '/dev/ttyUSB1', '/dev/ttyUSB3', '/dev/ttyACM0'];
-
-      for (const path of commonPaths) {
-        try {
-          const fs = require('fs');
-          if (fs.existsSync(path)) {
-            this.modemPath = path;
-            console.log(`[SMS] Found potential modem at ${this.modemPath}`);
-            return;
-          }
-        } catch (error) {
-          // Try next path
-        }
-      }
-    } catch (error) {
-      console.log('[SMS] Error detecting modem:', error.message);
     }
   }
 
