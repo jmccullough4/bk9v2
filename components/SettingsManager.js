@@ -13,6 +13,7 @@ export default function SettingsManager({ onClose }) {
   const [newPassword, setNewPassword] = useState('');
   const [smsNumbers, setSmsNumbers] = useState([]);
   const [newSmsNumber, setNewSmsNumber] = useState('');
+  const [smsModemPath, setSmsModemPath] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -33,6 +34,7 @@ export default function SettingsManager({ onClose }) {
         setSystemName(data.systemName || 'BlueK9-01');
         setNmeaIp(data.nmeaIp || '');
         setNmeaPort(data.nmeaPort || '10110');
+        setSmsModemPath(data.smsModemPath || '');
       }
     } catch (err) {
       console.error('Failed to load settings:', err);
@@ -257,6 +259,28 @@ export default function SettingsManager({ onClose }) {
       }
     } catch (err) {
       console.error('Failed to remove SMS number:', err);
+    }
+  };
+
+  const saveSmsModemSettings = async () => {
+    setError('');
+    setSuccess('');
+
+    try {
+      const response = await fetch('/api/settings/sms-modem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ smsModemPath }),
+      });
+
+      if (response.ok) {
+        setSuccess('Modem settings saved');
+        setTimeout(() => setSuccess(''), 3000);
+      } else {
+        setError('Failed to save modem settings');
+      }
+    } catch (err) {
+      setError('Connection error');
     }
   };
 
@@ -530,7 +554,38 @@ export default function SettingsManager({ onClose }) {
           {/* SMS Tab */}
           {activeTab === 'sms' && (
             <div className="space-y-4">
-              <h3 className="font-semibold text-white">SMS Alert Numbers</h3>
+              <h3 className="font-semibold text-white">SMS Configuration</h3>
+
+              {/* Modem Configuration */}
+              <div className="bg-bluek9-darker border border-gray-600 rounded-lg p-4 space-y-3">
+                <h4 className="text-sm font-medium text-gray-400">SIMCOM7600 Modem Settings</h4>
+                <div className="bg-amber-950 border border-amber-700 rounded p-3 text-xs text-amber-200">
+                  <p className="font-semibold mb-1">⚠️ IMPORTANT:</p>
+                  <p className="mb-1">Configure the correct modem port to avoid interfering with your internet connection.</p>
+                  <p>For SIMCOM7600: Use /dev/ttyUSB2 or /dev/ttyUSB3 (NOT the PPP/internet port)</p>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">
+                    Modem Device Path
+                  </label>
+                  <input
+                    type="text"
+                    value={smsModemPath}
+                    onChange={(e) => setSmsModemPath(e.target.value)}
+                    placeholder="/dev/ttyUSB2"
+                    className="w-full px-3 py-2 bg-bluek9-dark border border-gray-600 rounded-lg focus:outline-none focus:border-bluek9-cyan font-mono text-sm"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Leave empty to disable SMS (logs only)</p>
+                </div>
+                <button
+                  onClick={saveSmsModemSettings}
+                  className="w-full bg-amber-900 hover:bg-amber-800 text-white font-bold py-2 px-4 rounded-lg transition"
+                >
+                  Save Modem Settings
+                </button>
+              </div>
+
+              <h3 className="font-semibold text-white mt-6">SMS Alert Numbers</h3>
 
               {/* Add SMS Number Form */}
               <form onSubmit={addSmsNumber} className="space-y-3 bg-bluek9-darker border border-gray-600 rounded-lg p-4">
