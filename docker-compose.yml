@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  bluek9:
+    build: .
+    container_name: bluek9-client
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    volumes:
+      - ./data:/app/data
+      - /var/run/dbus:/var/run/dbus
+      - /dev:/dev
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0
+      - /dev/ttyUSB1:/dev/ttyUSB1
+      - /dev/ttyUSB2:/dev/ttyUSB2
+      - /dev/ttyUSB3:/dev/ttyUSB3
+      - /dev/ttyACM0:/dev/ttyACM0
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_ADMIN
+    ports:
+      - "3000:3000"
