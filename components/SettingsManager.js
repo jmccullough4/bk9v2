@@ -11,6 +11,8 @@ export default function SettingsManager({ onClose }) {
   const [users, setUsers] = useState([]);
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [smsNumbers, setSmsNumbers] = useState([]);
+  const [newSmsNumber, setNewSmsNumber] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -18,6 +20,7 @@ export default function SettingsManager({ onClose }) {
     loadSettings();
     loadRadios();
     loadUsers();
+    loadSmsNumbers();
     queryAvailableRadios();
   }, []);
 
@@ -184,6 +187,72 @@ export default function SettingsManager({ onClose }) {
     }
   };
 
+  const loadSmsNumbers = async () => {
+    try {
+      const response = await fetch('/api/sms/numbers');
+      if (response.ok) {
+        const data = await response.json();
+        setSmsNumbers(data.numbers || []);
+      }
+    } catch (err) {
+      console.error('Failed to load SMS numbers:', err);
+    }
+  };
+
+  const addSmsNumber = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+
+    // Validate phone number (basic US format)
+    const cleanNumber = newSmsNumber.replace(/\D/g, '');
+    if (cleanNumber.length !== 10 && cleanNumber.length !== 11) {
+      setError('Enter a valid 10-digit US phone number');
+      return;
+    }
+
+    if (smsNumbers.length >= 10) {
+      setError('Maximum 10 SMS numbers allowed');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/sms/numbers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ number: cleanNumber }),
+      });
+
+      if (response.ok) {
+        setSuccess('SMS number added');
+        setNewSmsNumber('');
+        await loadSmsNumbers();
+        setTimeout(() => setSuccess(''), 3000);
+      } else {
+        const data = await response.json();
+        setError(data.error || 'Failed to add SMS number');
+      }
+    } catch (err) {
+      setError('Connection error');
+    }
+  };
+
+  const removeSmsNumber = async (number) => {
+    try {
+      const response = await fetch('/api/sms/numbers', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ number }),
+      });
+
+      if (response.ok) {
+        await loadSmsNumbers();
+      }
+    } catch (err) {
+      console.error('Failed to remove SMS number:', err);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-bluek9-dark border border-bluek9-cyan/30 rounded-xl shadow-2xl w-full max-w-3xl max-h-[80vh] flex flex-col">
@@ -219,6 +288,16 @@ export default function SettingsManager({ onClose }) {
             }`}
           >
             Radios
+          </button>
+          <button
+            onClick={() => setActiveTab('sms')}
+            className={`px-6 py-3 font-medium transition ${
+              activeTab === 'sms'
+                ? 'text-bluek9-cyan border-b-2 border-bluek9-cyan'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            SMS
           </button>
           <button
             onClick={() => setActiveTab('users')}
@@ -438,6 +517,77 @@ export default function SettingsManager({ onClose }) {
               >
                 Refresh Available Radios
               </button>
+            </div>
+          )}
+
+          {/* SMS Tab */}
+          {activeTab === 'sms' && (
+            <div className="space-y-4">
+              <h3 className="font-semibold text-white">SMS Alert Numbers</h3>
+
+              {/* Add SMS Number Form */}
+              <form onSubmit={addSmsNumber} className="space-y-3 bg-bluek9-darker border border-gray-600 rounded-lg p-4">
+                <h4 className="text-sm font-medium text-gray-400">Add Alert Number</h4>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">
+                    Phone Number (10 digits)
+                  </label>
+                  <input
+                    type="tel"
+                    value={newSmsNumber}
+                    onChange={(e) => setNewSmsNumber(e.target.value)}
+                    placeholder="5551234567"
+                    className="w-full px-3 py-2 bg-bluek9-dark border border-gray-600 rounded-lg focus:outline-none focus:border-bluek9-cyan"
+                    required
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="w-full bg-amber-900 hover:bg-amber-800 text-white font-bold py-2 px-4 rounded-lg transition"
+                >
+                  Add Number
+                </button>
+              </form>
+
+              {/* SMS Numbers List */}
+              <div>
+                <h4 className="text-sm font-medium text-gray-400 mb-2">
+                  Alert Numbers ({smsNumbers.length}/10)
+                </h4>
+                {smsNumbers.length === 0 ? (
+                  <div className="text-sm text-gray-500">No SMS alert numbers configured</div>
+                ) : (
+                  <div className="space-y-2">
+                    {smsNumbers.map((number) => (
+                      <div
+                        key={number}
+                        className="flex items-center justify-between bg-bluek9-darker border border-gray-600 rounded-lg p-3"
+                      >
+                        <div className="flex items-center space-x-3">
+                          <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                          </svg>
+                          <span className="text-white font-mono">
+                            {number.length === 10 ? `+1 (${number.slice(0, 3)}) ${number.slice(3, 6)}-${number.slice(6)}` : number}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => removeSmsNumber(number)}
+                          className="px-3 py-1 bg-red-900 hover:bg-red-800 text-white text-sm rounded transition"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="text-xs text-gray-500 space-y-1">
+                <p>• SMS alerts sent when target devices are detected</p>
+                <p>• Up to 10 phone numbers (US only)</p>
+                <p>• Requires SIMCOM7600 cellular modem</p>
+              </div>
             </div>
           )}
 
