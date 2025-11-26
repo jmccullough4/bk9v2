@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 
-export default function SurveyTable({ devices, targets }) {
+export default function SurveyTable({ devices, onDeviceRightClick }) {
   const [sortField, setSortField] = useState('lastSeen');
   const [sortDirection, setSortDirection] = useState('desc');
   const [filter, setFilter] = useState('');
@@ -46,10 +46,6 @@ export default function SurveyTable({ devices, targets }) {
       setSortField(field);
       setSortDirection('desc');
     }
-  };
-
-  const isTarget = (address) => {
-    return targets.some(t => t.address.toLowerCase() === address.toLowerCase());
   };
 
   const getRSSIColor = (rssi) => {
@@ -134,41 +130,36 @@ export default function SurveyTable({ devices, targets }) {
             </tr>
           </thead>
           <tbody>
-            {sortedDevices.map((device) => {
-              const targetDevice = isTarget(device.address);
-              return (
-                <tr
-                  key={device.address}
-                  className={`border-b border-gray-700 hover:bg-bluek9-darker/50 transition ${
-                    targetDevice ? 'bg-red-900/20' : ''
-                  }`}
-                >
-                  <td className={`px-3 py-2 font-mono text-xs ${targetDevice ? 'text-red-400 font-bold' : ''}`}>
-                    {device.address}
-                  </td>
-                  <td className={`px-3 py-2 ${targetDevice ? 'text-red-400 font-bold' : ''}`}>
-                    {device.name || '(Unknown)'}
-                    {targetDevice && <span className="ml-2">🎯</span>}
-                  </td>
-                  <td className={`px-3 py-2 text-gray-400 ${targetDevice ? 'text-red-300' : ''}`}>
-                    {device.manufacturer || '-'}
-                  </td>
-                  <td className={`px-3 py-2 ${targetDevice ? 'text-red-400 font-bold' : getRSSIColor(device.rssi)}`}>
-                    {device.rssi ? `${device.rssi} dBm` : '-'}
-                  </td>
-                  <td className={`px-3 py-2 text-xs ${targetDevice ? 'text-red-300' : 'text-gray-400'}`}>
-                    {device.emitterLat && device.emitterLon
-                      ? `${device.emitterLat.toFixed(6)}, ${device.emitterLon.toFixed(6)}`
-                      : '-'}
-                  </td>
-                  <td className={`px-3 py-2 text-xs ${targetDevice ? 'text-red-300' : 'text-gray-400'}`}>
-                    {device.lastSeen && !isNaN(device.lastSeen)
-                      ? formatDistanceToNow(device.lastSeen, { addSuffix: true })
-                      : '-'}
-                  </td>
-                </tr>
-              );
-            })}
+            {sortedDevices.map((device) => (
+              <tr
+                key={device.address}
+                onContextMenu={(e) => onDeviceRightClick && onDeviceRightClick(e, device)}
+                className="border-b border-gray-700 hover:bg-bluek9-darker/50 cursor-pointer transition"
+              >
+                <td className="px-3 py-2 font-mono text-xs">
+                  {device.address}
+                </td>
+                <td className="px-3 py-2">
+                  {device.name || '(Unknown)'}
+                </td>
+                <td className="px-3 py-2 text-gray-400">
+                  {device.manufacturer || '-'}
+                </td>
+                <td className={`px-3 py-2 ${getRSSIColor(device.rssi)}`}>
+                  {device.rssi ? `${device.rssi} dBm` : '-'}
+                </td>
+                <td className="px-3 py-2 text-xs text-gray-400">
+                  {device.emitterLat && device.emitterLon
+                    ? `${device.emitterLat.toFixed(6)}, ${device.emitterLon.toFixed(6)}`
+                    : '-'}
+                </td>
+                <td className="px-3 py-2 text-xs text-gray-400">
+                  {device.lastSeen && !isNaN(device.lastSeen)
+                    ? formatDistanceToNow(device.lastSeen, { addSuffix: true })
+                    : '-'}
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
 
