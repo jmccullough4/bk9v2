@@ -221,7 +221,7 @@ class BluetoothScanner extends EventEmitter {
         ...device,
         deviceType: device.type,
         radioId: radio.id,
-        rssi: -60 + Math.floor(Math.random() * 40) // Random RSSI between -60 and -100
+        rssi: -50 - Math.floor(Math.random() * 50) // Random RSSI between -50 and -100
       });
 
       index++;
@@ -251,7 +251,7 @@ class BluetoothScanner extends EventEmitter {
       name: deviceData.name || '(Unknown)',
       manufacturer,
       deviceType: deviceData.deviceType,
-      rssi: deviceData.rssi || -999,
+      rssi: deviceData.rssi ?? null,
       systemLat: gpsLocation.lat,
       systemLon: gpsLocation.lon,
       emitterLat: emitterLocation.lat,

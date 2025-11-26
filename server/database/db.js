@@ -148,8 +148,9 @@ class BlueK9Database {
   }
 
   clearDevices() {
-    this.db.prepare('DELETE FROM devices').run();
+    // Delete from rssi_history first due to foreign key constraint
     this.db.prepare('DELETE FROM rssi_history').run();
+    this.db.prepare('DELETE FROM devices').run();
   }
 
   getRSSIHistory(address) {
